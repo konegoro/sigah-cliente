@@ -20,6 +20,8 @@ pip install -e ".[dev]"
 cp .env.example .env               # y completar SIGAH_API_KEY
 ```
 
+**Solo `SIGAH_API_KEY` es obligatoria.** Todo lo demás es opcional; si falta, rige el valor por defecto (constantes al inicio de `sigah/cliente.py` y `sigah/reglas.py`).
+
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `SIGAH_API_KEY` | — | **Obligatoria.** Se envía en la cabecera `X-Auth-Token` |
@@ -29,7 +31,7 @@ cp .env.example .env               # y completar SIGAH_API_KEY
 | `SIGAH_DESFASE_HORAS` | `4` | Horas que SIGAH suma a la hora local ([HALLAZGOS §1.1](HALLAZGOS.md#11-evidencia-del-desfase-horario-de-4-h)) |
 | `SIGAH_AUDITORIA` | `sigah_auditoria.db` | Archivo SQLite de auditoría |
 | `SIGAH_HORA_MIN` / `SIGAH_HORA_MAX` | `07:00` / `21:00` | Rango horario plausible (regla `horario_fuera_de_rango`) |
-| `SIGAH_REVISAR_PROFESIONAL` | `0` | `1` activa la regla de profesional con dos citas a la misma hora |
+| `SIGAH_REVISAR_PROFESIONAL` | `false` | `true` activa la regla de profesional con dos citas a la misma hora |
 
 > ⚠️ El ambiente entregado es **producción**: confirmar o anular afecta a pacientes reales.
 
@@ -54,7 +56,7 @@ AGD-0000099013  2026-12-15 14:00  agendada    MINT  DRA. ROJAS I.      ***  *** 
 from datetime import date
 from sigah import Auditoria, SigahClient, revisar
 
-with Auditoria() as auditoria, SigahClient(api_key, centro_id=3, auditoria=auditoria) as cliente:
+with Auditoria() as auditoria, SigahClient(api_key, auditoria=auditoria) as cliente:
     citas = cliente.agenda(date(2026, 12, 15))   # list[Cita], día local completo
     for alerta in revisar(citas):
         print(alerta.tipo, alerta.cita_ids)

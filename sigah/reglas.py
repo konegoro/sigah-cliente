@@ -10,6 +10,9 @@ from enum import Enum
 from .modelos import ZONA, Cita, EstadoCita
 
 PROFESIONALES_GRUPALES = ("EQUIPO",)  # ej. "EQUIPO TURNO 3": atiende a varios pacientes a la vez
+# Rango horario plausible por defecto (hora local). Lo observado va de 08:00 a 20:30.
+HORA_MIN = time(7)
+HORA_MAX = time(21)
 
 
 class TipoAlerta(Enum):
@@ -29,7 +32,7 @@ class Alerta:
     detalle: str
 
 
-def revisar(citas: list[Cita], *, hora_min: time = time(7), hora_max: time = time(21),
+def revisar(citas: list[Cita], *, hora_min: time = HORA_MIN, hora_max: time = HORA_MAX,
             revisar_profesional: bool = False, ahora: datetime | None = None) -> list[Alerta]:
     """Revisa las citas y devuelve las alertas encontradas.
 
@@ -62,10 +65,19 @@ def revisar(citas: list[Cita], *, hora_min: time = time(7), hora_max: time = tim
 
 
 def _repetidas(citas: list[Cita], tipo: TipoAlerta, detalle: str, clave) -> list[Alerta]:
-    """Agrupa por `clave` y alerta los grupos con más de una cita. Claves con datos faltantes no participan."""
-    grupos = defaultdict(list)
+    """Agrupa las citas por `clave(cita)` y alerta cada grupo con más de una cita.
+
+    Ej.: clave = lambda c: (c.paciente.rut, c.inicio) junta las citas del mismo paciente a la misma hora.
+    Si a la clave le falta un dato (None), la cita no participa.
+    """
+    grupos = defaultdict(list)  # clave → ids de las citas con esa clave
     for c in citas:
         k = clave(c)
         if None not in k:
             grupos[k].append(c.id)
-    return [Alerta(tipo, tuple(ids), detalle) for ids in grupos.values() if len(ids) > 1]
+
+    alertas = []
+    for ids in grupos.values():
+        if len(ids) > 1:
+            alertas.append(Alerta(tipo, tuple(ids), detalle))
+    return alertas

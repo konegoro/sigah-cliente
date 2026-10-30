@@ -74,11 +74,15 @@ def _enmascarar_cuerpo(cuerpo: str | None) -> str | None:
 
 
 def enmascarar(valor, seguro: bool = True):
-    """Reemplaza dígitos por 9 y letras por X fuera de CAMPOS_SEGUROS, conservando la forma."""
-    if isinstance(valor, dict):
-        return {k: enmascarar(v, seguro and k in CAMPOS_SEGUROS) for k, v in valor.items()}
-    if isinstance(valor, list):
+    """Enmascara todo valor que no esté bajo un campo de CAMPOS_SEGUROS, conservando su forma.
+
+    Ej.: {"ID_CITA": "AGD-1", "RUT_PAC": "12.345.678-5"} → {"ID_CITA": "AGD-1", "RUT_PAC": "99.999.999-9"}
+    """
+    if isinstance(valor, dict):  # cada campo hereda "seguro" solo si su nombre está en la lista blanca
+        return {campo: enmascarar(v, seguro and campo in CAMPOS_SEGUROS) for campo, v in valor.items()}
+    if isinstance(valor, list):  # los elementos de una lista heredan lo que tenga la lista
         return [enmascarar(v, seguro) for v in valor]
     if seguro or valor is None or isinstance(valor, bool):
         return valor
-    return re.sub(r"[^\W\d_]", "X", re.sub(r"\d", "9", str(valor)))
+    texto = re.sub(r"\d", "9", str(valor))  # dígitos → 9
+    return re.sub(r"[^\W\d_]", "X", texto)  # letras (con tildes y ñ) → X

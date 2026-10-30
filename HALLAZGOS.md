@@ -35,7 +35,7 @@
 | 20 | Ambiente QA | "En revisión" | No existe. Informática reservó **3 citas de prueba en producción** (15-12-2026); "el resto de la agenda no se debe modificar" | Escritura solo sobre esas 3 (§3.1) |
 | 21 | Versión del manual | v1.4 (04-2021) | El documento tiene fecha 14-08-2019 (la de la v1.3) y "Revisado por: (pendiente)". Los cambios de la v1.4 (paginación, fechas) no están descritos | Todo el manual es sospechoso |
 | 22 | Respuesta de `confirmar` / `anular` | No documentada | **Texto plano, no JSON**: `OK` si se aplica, `ERR-xx` si se rechaza, ambos con **HTTP 200** | 🔴 Un cliente que espera JSON informa error en una escritura exitosa |
-| 23 | Latencia de `confirmar` | — | La primera confirmación **no respondió en 10 s** y el cambio apareció **entre 10 y 27 s después** de enviarla. Una relectura inmediata al timeout todavía mostraba la cita agendada | 🔴 Un reintento automático habría confirmado dos veces |
+| 23 | Latencia de las escrituras | — | **Muy variable: de 0.02 s a 25 s** (§1.4). La primera confirmación no respondió en 10 s y el cambio apareció entre 10 y 27 s después de enviarla; una relectura inmediata al timeout todavía mostraba la cita agendada. Anular una cita confirmada tardó 25 s | 🔴 Un reintento automático habría confirmado dos veces |
 
 ### 1.4 Pruebas de escritura (29-10-2026)
 
@@ -47,7 +47,7 @@ Sobre las citas reservadas por Informática (§3.2), con autorización explícit
 | A2 | 099013 (confirmada) | `confirmar` otra vez (POST directo) | HTTP 200, al instante, cuerpo `ERR-07`. Estado sin cambios |
 | B1 | 099014 (agendada) | `anular` (cliente) | HTTP 200 en 20 ms, cuerpo `OK`, `COD_EST=3`. El cliente lo informó como error por no ser JSON: **corregido** |
 | B2 | 099014 (cancelada) | `confirmar` (POST directo) | HTTP 200, cuerpo `ERR-09`. Estado sin cambios: SIGAH valida transiciones |
-| B3 | 099013 (confirmada) | `anular` (cliente corregido) | `OK`, `COD_EST=3`. Flujo completo correcto |
+| B3 | 099013 (confirmada) | `anular` (cliente corregido) | `OK` **tras 25 s**, `COD_EST=3`. Flujo completo correcto; con el timeout original de 10 s habría sido "incierto" |
 | — | 099015 | No se tocó | Queda de reserva |
 
 Las otras 17 citas del 15-12 siguen agendadas. Los cuerpos de texto plano se identificaron comparando el SHA-256 guardado en la auditoría con candidatos (`OK`, `ERR-00`…`ERR-99`), sin guardar respuestas en claro.
@@ -129,7 +129,8 @@ Datos existentes: solo del **26 al 31-10-2026** (60 citas, 6 especialidades) y d
 | **Antes de confirmar o anular se vuelve a leer la cita** y se verifica su estado | El estado puede cambiar entre la descarga de la mañana y la llamada |
 | **Normalización**: RUT sin puntos con DV en mayúscula, teléfono en E.164, nombre separado en apellidos y nombres | Datos con formatos distintos al manual |
 | **Un dato inválido (RUT con DV malo, teléfono no interpretable) no descarta la cita**: queda marcada con una advertencia | Excluir citas dejaría pacientes sin su llamada. Mejor completa y marcada |
-| **`centro_id` obligatorio en el cliente**, sin valor por defecto. El CLI usa el centro 3 (Hospital) | Un centro equivocado responde "OK, 0 citas": la librería no debe asumirlo |
+| **Centro 3 (Hospital) por defecto**, configurable con `SIGAH_CENTRO_ID` | Confirmado por Informática y único con datos. Un centro equivocado responde "OK, 0 citas" sin error, por eso el valor está documentado y no se deduce |
+| **Solo la API key es obligatoria**; URL, centro, desfase, timeouts y horarios tienen valores por defecto como constantes con nombre y motivo | Requisito: clonar, configurar la key y obtener la agenda |
 | **Auditoría en SQLite de toda llamada (GET y POST)**: URL, HTTP, `x-cloud-trace-context`, cuerpo completo **con datos personales enmascarados** (lista blanca de campos) y SHA-256 del cuerpo original. En escrituras se registra además la intención antes de enviar | Evidencia ante incidentes sin guardar una copia de los datos de pacientes |
 | **Log de calidad** (`logging`, logger `sigah.calidad`): un aviso por dato inválido, con el id de la cita y sin valores personales | La plataforma decide dónde guardarlo |
 | **Escritura doblemente protegida**: la librería la trae deshabilitada y el CLI solo escribe sobre ids listados en `SIGAH_IDS_ESCRIBIBLES` | En producción, solo las 3 citas de prueba deben poder modificarse |
@@ -146,7 +147,7 @@ Datos existentes: solo del **26 al 31-10-2026** (60 citas, 6 especialidades) y d
 | `estado_desconocido` | `COD_EST` no catalogado |
 | `horario_fuera_de_rango` | Inicio fuera de `SIGAH_HORA_MIN`–`SIGAH_HORA_MAX` (07:00–21:00 por defecto). También avisa si el desfase horario cambia |
 | `cita_pasada` | Inicio anterior al momento de la revisión |
-| `profesional_misma_hora` | **Opcional, apagada por defecto** (`SIGAH_REVISAR_PROFESIONAL=1`). Mismo profesional, mismo inicio, excluye equipos ("EQUIPO …") |
+| `profesional_misma_hora` | **Opcional, apagada por defecto** (`SIGAH_REVISAR_PROFESIONAL=true`). Mismo profesional, mismo inicio, excluye equipos ("EQUIPO …") |
 
 Limitaciones:
 - SIGAH no informa la **duración** de las citas: solo se detectan inicios idénticos, no solapamientos.

@@ -17,7 +17,7 @@ HTML_502 = httpx.Response(502, text="<html>502 Bad Gateway</html>")
 
 
 def cliente(**kwargs):
-    return SigahClient("clave", 3, url_base=URL, espera=0, **kwargs)
+    return SigahClient("clave", url_base=URL, espera=0, **kwargs)
 
 
 def lista(*registros):

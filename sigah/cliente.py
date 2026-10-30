@@ -11,7 +11,19 @@ from .errores import (POR_CODIGO, AutenticacionError, EscrituraNoPermitidaError,
 from .mapeo import a_cita, citas_del_dia, dias_sigah
 from .modelos import Cita, EstadoCita
 
-URL_BASE = "https://sigah-entrevista-79007222944.southamerica-west1.run.app/api/v1"
+# Valores por defecto: con ellos basta configurar la API key. Todos se pueden cambiar.
+URL_BASE = "https://sigah-entrevista-79007222944.southamerica-west1.run.app/api/v1"  # ambiente entregado
+CENTRO_ID = 3  # Hospital, según Informática
+DESFASE_HORAS = 4  # SIGAH entrega la hora local + 4 h (HALLAZGOS §1.1)
+TIMEOUT_LECTURA = 10.0  # segundos
+TIMEOUT_ESCRITURA = 60.0  # segundos: confirmar/anular tardaron hasta 25 s en producción
+REINTENTOS = 3  # solo lecturas; las escrituras nunca se reintentan
+ESPERA_REINTENTO = 1.0  # segundos; se duplica en cada reintento (1, 2, 4)
+
+# Estados desde los que se permite cada escritura (SIGAH rechaza el resto con ERR-07 / ERR-09).
+PUEDE_CONFIRMAR = frozenset({EstadoCita.AGENDADA})
+PUEDE_ANULAR = frozenset({EstadoCita.AGENDADA, EstadoCita.CONFIRMADA})
+
 # Una clave fuera de estas podría ser el token de paginación (no documentado): se falla antes que devolver datos parciales.
 CLAVES_LISTA = {"estado", "total", "citas"}
 CLAVES_DETALLE = {"estado", "cita"}
@@ -24,18 +36,20 @@ class _Transitorio(Exception):
 class SigahClient:
     """Cliente de SIGAH: expone las citas en el modelo propio (`Cita`).
 
-    Uso: `with SigahClient(api_key, centro_id=3) as cliente: cliente.agenda(date(2026, 12, 15))`.
+    Uso: `with SigahClient(api_key) as cliente: cliente.agenda(date(2026, 12, 15))`.
     La escritura está deshabilitada salvo `permitir_escritura=True`.
     """
 
-    def __init__(self, api_key: str, centro_id: int, *, url_base: str = URL_BASE, desfase_horas: int = 4,
-                 permitir_escritura: bool = False, auditoria: Auditoria | None = None,
-                 timeout: float = 10.0, timeout_escritura: float = 60.0, reintentos: int = 3, espera: float = 1.0):
+    def __init__(self, api_key: str, *, url_base: str = URL_BASE, centro_id: int = CENTRO_ID,
+                 desfase_horas: int = DESFASE_HORAS, permitir_escritura: bool = False,
+                 auditoria: Auditoria | None = None, timeout: float = TIMEOUT_LECTURA,
+                 timeout_escritura: float = TIMEOUT_ESCRITURA, reintentos: int = REINTENTOS,
+                 espera: float = ESPERA_REINTENTO):
         self.centro_id = centro_id
         self.desfase_horas = desfase_horas
         self.permitir_escritura = permitir_escritura
         self._auditoria = auditoria
-        self._timeout_escritura = timeout_escritura  # confirmar tardó más de 10 s en producción
+        self._timeout_escritura = timeout_escritura
         self._reintentos = reintentos
         self._espera = espera
         self._http = httpx.Client(base_url=url_base, timeout=timeout, headers={"X-Auth-Token": api_key})
@@ -54,27 +68,29 @@ class SigahClient:
         citas = []
         for dia in dias_sigah(fecha, self.desfase_horas):
             datos = self._get("/citas", {"fecha": f"{dia} 00:00:00", "centro_id": self.centro_id})
-            citas += citas_del_dia(_lista(datos), fecha, self.desfase_horas)
+            citas += citas_del_dia(_extraer_citas(datos), fecha, self.desfase_horas)
         return sorted(citas, key=lambda c: c.inicio)
 
     def cita(self, id_cita: str) -> Cita:
         """Una cita por su identificador (ej. "AGD-0000099013")."""
+        # El id va dentro de la URL: sin esto, "AGD-1/anular" haría un GET a otra ruta.
         if not re.fullmatch(r"[A-Za-z0-9-]+", id_cita):
             raise SolicitudInvalidaError(f"Id de cita inválido: {id_cita!r}")
-        cita = a_cita(_detalle(self._get(f"/citas/{id_cita}")), self.desfase_horas)
+        datos = self._get(f"/citas/{id_cita}")
+        cita = a_cita(_extraer_cita(datos), self.desfase_horas)
         if cita is None:
             raise RespuestaInesperadaError(f"SIGAH devolvió {id_cita} sin id o fecha válida")
         return cita
 
     def confirmar(self, id_cita: str) -> Cita:
-        """Confirma una cita AGENDADA. Devuelve la cita releída desde SIGAH."""
-        return self._escribir(id_cita, "confirmar", {EstadoCita.AGENDADA})
+        """Confirma una cita (ver PUEDE_CONFIRMAR). Devuelve la cita releída desde SIGAH."""
+        return self._escribir(id_cita, "confirmar", PUEDE_CONFIRMAR)
 
     def anular(self, id_cita: str) -> Cita:
-        """Anula una cita AGENDADA o CONFIRMADA. Devuelve la cita releída desde SIGAH."""
-        return self._escribir(id_cita, "anular", {EstadoCita.AGENDADA, EstadoCita.CONFIRMADA})
+        """Anula una cita (ver PUEDE_ANULAR). Devuelve la cita releída desde SIGAH."""
+        return self._escribir(id_cita, "anular", PUEDE_ANULAR)
 
-    def _escribir(self, id_cita: str, accion: str, estados_validos: set[EstadoCita]) -> Cita:
+    def _escribir(self, id_cita: str, accion: str, estados_validos: frozenset[EstadoCita]) -> Cita:
         if not self.permitir_escritura:
             raise EscrituraNoPermitidaError("La escritura está deshabilitada")
         # Se relee justo antes de escribir: el estado pudo cambiar desde que se obtuvo la agenda.
@@ -162,7 +178,8 @@ def _validar(respuesta: httpx.Response) -> dict:
     return datos
 
 
-def _lista(datos: dict) -> list[dict]:
+def _extraer_citas(datos: dict) -> list[dict]:
+    """De `{"estado", "total", "citas": [...]}` devuelve la lista de registros, validando la forma."""
     _exigir_claves(datos, CLAVES_LISTA)
     registros = datos.get("citas")
     if not isinstance(registros, list) or datos.get("total") != len(registros):
@@ -170,11 +187,13 @@ def _lista(datos: dict) -> list[dict]:
     return registros
 
 
-def _detalle(datos: dict) -> dict:
+def _extraer_cita(datos: dict) -> dict:
+    """De `{"estado", "cita": {...}}` devuelve el registro de la cita, validando la forma."""
     _exigir_claves(datos, CLAVES_DETALLE)
     return datos.get("cita") or {}
 
 
 def _exigir_claves(datos: dict, esperadas: set[str]) -> None:
-    if extra := set(datos) - esperadas:
+    extra = set(datos) - esperadas
+    if extra:
         raise RespuestaInesperadaError(f"Claves no reconocidas en la respuesta: {sorted(extra)}")

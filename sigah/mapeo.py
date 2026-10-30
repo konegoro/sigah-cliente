@@ -29,7 +29,8 @@ def citas_del_dia(registros: list[dict], fecha: date, desfase_horas: int) -> lis
         inicio = _inicio(reg.get("FEC_HORA"), desfase_horas)
         if inicio is not None and inicio.date() != fecha:
             continue  # pertenece a otro día local
-        if cita := a_cita(reg, desfase_horas):
+        cita = a_cita(reg, desfase_horas)
+        if cita is not None:
             citas.append(cita)
     return citas
 
