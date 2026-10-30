@@ -4,21 +4,28 @@ Cliente Python de la API de agenda **SIGAH** (Hospital Regional de Puerto Aldea)
 
 El sistema real difiere bastante de su manual (autenticación, nombres de campos, zona horaria, errores, paginación). Las diferencias, los supuestos y las preguntas abiertas están en **[HALLAZGOS.md](HALLAZGOS.md)**.
 
-## Instalación
+## Inicio rápido (≈ 1 minuto)
 
 Requiere Python 3.11+.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+git clone https://github.com/konegoro/sigah-cliente.git
+cd sigah-cliente
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
+cp .env.example .env               # y escribir la API key en SIGAH_API_KEY
+
+sigah agenda 2026-12-15            # → 20 citas
 ```
+
+> **Días con datos** en el ambiente entregado: 05–08-10, 26–31-10 y 15-12-2026. El resto devuelve 0 citas.
+>
+> **Ubuntu/Debian:** si `python3 -m venv` falla por `ensurepip`, instalar antes `sudo apt install python3-venv`.
+>
+> **Windows:** activar con `.venv\Scripts\activate`. Si PowerShell bloquea la activación, usar `.venv\Scripts\sigah.exe` en lugar de `sigah`.
 
 ## Configuración
-
-```bash
-cp .env.example .env               # y completar SIGAH_API_KEY
-```
 
 **Solo `SIGAH_API_KEY` es obligatoria.** Todo lo demás es opcional; si falta, rige el valor por defecto (constantes al inicio de `sigah/cliente.py` y `sigah/reglas.py`).
 
