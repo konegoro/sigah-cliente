@@ -64,6 +64,9 @@ class Auditoria:
 def _enmascarar_cuerpo(cuerpo: str | None) -> str | None:
     if cuerpo is None:
         return None
+    # Respuestas de escritura ("OK" o un código "ERR-xx"): no traen datos personales.
+    if re.fullmatch(r"OK|ERR-\d+", cuerpo.strip()):
+        return cuerpo
     try:
         return json.dumps(enmascarar(json.loads(cuerpo)), ensure_ascii=False)
     except ValueError:

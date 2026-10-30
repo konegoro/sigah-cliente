@@ -98,7 +98,11 @@ def test_escritura_exitosa_en_texto_plano(respx_mock):
     # Observado en producción: anular responde HTTP 200 con "OK" sin JSON.
     respx_mock.get("/citas/AGD-1").mock(side_effect=[detalle(), detalle({**REGISTRO, "COD_EST": 3})])
     respx_mock.post("/citas/AGD-1/anular").respond(200, text="OK")
-    assert cliente(permitir_escritura=True).anular("AGD-1").estado is EstadoCita.CANCELADA
+    with Auditoria(":memory:") as auditoria:
+        cita = cliente(permitir_escritura=True, auditoria=auditoria).anular("AGD-1")
+        cuerpos_post = [r["cuerpo"] for r in auditoria.registros() if r["fase"] == "respuesta" and r["metodo"] == "POST"]
+    assert cita.estado is EstadoCita.CANCELADA
+    assert cuerpos_post == ["OK"]  # sin datos personales: queda en claro como evidencia
 
 
 def test_codigo_de_error_en_texto_plano(respx_mock):
