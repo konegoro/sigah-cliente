@@ -55,8 +55,28 @@ def test_get_agota_reintentos(respx_mock):
 
 def test_clave_desconocida_falla_en_vez_de_devolver_datos_parciales(respx_mock):
     respx_mock.get("/citas").respond(
-        200, json={"estado": "OK", "total": 1, "citas": [REGISTRO], "siguiente": "abc"})
-    with pytest.raises(RespuestaInesperadaError, match="siguiente"):
+        200, json={"estado": "OK", "total": 1, "citas": [REGISTRO], "cursor": "abc"})
+    with pytest.raises(RespuestaInesperadaError, match="cursor"):
+        cliente().agenda(date(2026, 12, 15))
+
+
+def pagina(*ids, siguiente=None):
+    datos = {"estado": "OK", "total": len(ids), "citas": [{**REGISTRO, "ID_CITA": i} for i in ids]}
+    return httpx.Response(200, json=datos | ({"siguiente": siguiente} if siguiente else {}))
+
+
+def test_agenda_recorre_todas_las_paginas(respx_mock):
+    # Como en producción (07-10): "siguiente" trae el token que se envía en "desde".
+    paginas = {None: pagina("P1-A", "P1-B", siguiente="PAG-1"), "PAG-1": pagina("P2-A", siguiente="PAG-2"),
+               "PAG-2": pagina("P3-A")}
+    respx_mock.get("/citas").mock(side_effect=lambda req: (
+        paginas[req.url.params.get("desde")] if req.url.params["fecha"].startswith("2026-12-15") else lista()))
+    assert sorted(c.id for c in cliente().agenda(date(2026, 12, 15))) == ["P1-A", "P1-B", "P2-A", "P3-A"]
+
+
+def test_paginacion_que_no_termina(respx_mock):
+    respx_mock.get("/citas").mock(return_value=pagina("A", siguiente="PAG-1"))  # siempre el mismo token
+    with pytest.raises(RespuestaInesperadaError, match="no termina"):
         cliente().agenda(date(2026, 12, 15))
 
 

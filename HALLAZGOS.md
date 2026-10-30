@@ -25,10 +25,10 @@
 | 10 | Forma de la respuesta | Lista JSON | `{"estado":"OK","total":N,"citas":[...]}`. Detalle: `{"estado":"OK","cita":{...}}` | — |
 | 11 | Nombres de campos | `id, rut, nombre, fechaHora, estado, especialidad, profesional, telefono, email` | `ID_CITA, RUT_PAC, NOM_PAC, FEC_HORA, COD_EST, COD_PRO, NOM_PRO, MEDICO, CENTRO, TEL_PAC, OBS` | Todos distintos |
 | 12 | Id de cita | Entero (`10432`) | Texto (`"AGD-0000010168"`). `/citas/10168` responde `ERR-04` | — |
-| 13 | Estado | Texto: `AGENDADA` / `CONFIRMADA` / `CANCELADA` | **Número** `COD_EST`: **`1 = AGENDADA`** (contrastado con la interfaz), **`2 = CONFIRMADA`** y **`3 = CANCELADA`** (observados al escribir, §1.4) | 🟠 Puede haber otros (ej. atendida, no asistió) |
+| 13 | Estado | Texto: `AGENDADA` / `CONFIRMADA` / `CANCELADA` | **Número** `COD_EST`: **`1 = AGENDADA`** (contrastado con la interfaz), **`2 = CONFIRMADA`** y **`3 = CANCELADA`** (observados al escribir, §1.4). El 08-10 aparecen además **`5`** y **`9`**, de significado desconocido | 🟠 Hay estados sin catalogar |
 | 14 | Filtro `estado` | Filtra por estado | **Se ignora**: `estado=CONFIRMADA` devuelve las citas con `COD_EST=1` | 🟠 Hay que filtrar del lado del cliente |
-| 15 | Paginación | v1.4: "se incorpora paginación (ver Anexo B)" | **El Anexo B no existe.** Jorge confirma que hay paginación. Es por **token de continuación** en el parámetro **`desde`**. Ninguna respuesta observada trajo token (máximo 20 citas por día). Unos 20 parámetros de tamaño de página o de rango de fechas se ignoran. Detalle en §1.2 | 🔴 No sabemos en qué campo viene el token |
-| 16 | Especialidad | Nombre (`"Traumatología"`). Anexo A con 5 códigos | Código (`COD_PRO`) y nombre en mayúsculas sin tildes (`NOM_PRO`). Aparece **`URGE`** (Urgencia Ambulatoria), que no está en el catálogo | — |
+| 15 | Paginación | v1.4: "se incorpora paginación (ver Anexo B)" | **El Anexo B no existe.** Páginas de **50 citas**: la respuesta trae el token en **`siguiente`** y la página que sigue se pide con **`desde=<token>`**. La última página no trae `siguiente`. **`total` es la cantidad de la página, no del día.** Detalle en §1.2 | 🔴 Sin recorrer las páginas, el 07-10 se habrían entregado 50 de 111 citas |
+| 16 | Especialidad | Nombre (`"Traumatología"`). Anexo A con 5 códigos | Código (`COD_PRO`) y nombre en mayúsculas sin tildes (`NOM_PRO`). Aparecen **`URGE`** (Urgencia Ambulatoria) y **`VACU`** (vacunación), que no están en el catálogo | — |
 | 17 | `email` | Existe (puede venir `null`) | **No existe.** Aparece `OBS` | No hay canal alternativo al teléfono |
 | 18 | `OBS` | — | **Siempre `null` en la API**, aunque en la interfaz 3 citas tienen la observación "RESERVA INFORMATICA · PRUEBA INTEGRACION" | 🟠 La API no expone las observaciones; las citas de prueba no se pueden identificar por API |
 | 19 | Formatos | ISO `2026-10-06T08:00:00`, RUT sin puntos, teléfono `+569XXXXXXXX`, nombre "Nombres Apellidos" | Fecha con espacio, RUT con puntos, teléfono con espacios (`+56 9 XXXX XXXX`), nombre `"APELLIDOS, NOMBRES"` en mayúsculas | Hay que normalizar |
@@ -78,7 +78,18 @@ La interfaz de SIGAH indica explícitamente "Horas en hora local del establecimi
 - Un id con formato `AGD-…` pasa la validación, pero no funciona como "continuar después de este id" (con `099001` deberían quedar 19 citas).
 - **`total` cambia según el token**, así que no es el total del día. El control `total` vs. cantidad recibida no basta para detectar páginas faltantes.
 - **Un token incorrecto puede responder "OK, 0 citas"**: otra agenda vacía silenciosa.
-- Conclusión: el token es opaco y **no se puede deducir sin una respuesta real que lo traiga**. Adivinarlo arriesga datos incompletos. Se le pregunta a Jorge.
+
+**Resuelto el 30-10.** Jorge indicó que en octubre hubo más pacientes; al recorrer el mes, el **07-10** trajo la clave `siguiente`:
+
+| Página | Citas | `siguiente` |
+|---|---|---|
+| 1 | 50 | token de 16 caracteres, forma `AAA-99999999-999` |
+| 2 | 50 | otro token |
+| 3 | 11 | no viene: última página |
+
+- 111 citas, ninguna repetida entre páginas. El mismo token devuelve siempre la misma página.
+- Los tokens son generados por SIGAH: el cliente **solo usa los que recibe**, nunca los construye (un token inventado puede dar "OK, 0 citas").
+- La forma del token explica por qué `AGD-0000099010` pasaba la validación: tiene el mismo formato.
 
 ### 1.3 La agenda de la captura corresponde al centro 3
 
@@ -93,7 +104,9 @@ La captura dice "Consultorio Adosado" y Jorge dice que el centro 3 es "el Hospit
 
 ## 2. Calidad de datos observada
 
-Datos existentes: solo del **26 al 31-10-2026** (60 citas, 6 especialidades) y del **15-12-2026** (20 citas, Medicina Interna). Nada antes, nada entremedio, nada después.
+Datos existentes: **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Ningún otro día de octubre a diciembre consultado tiene citas.
+
+**07-10: vacunación en bloque.** El día con más citas (111 en SIGAH, 110 en hora local) son todas de `VACU`: **20 pacientes con 5 o 6 citas cada uno**, siempre con el mismo profesional, repartidas en 7 a 10 horas. La regla `paciente_misma_especialidad_dia` genera 20 alertas. ¿Campaña con horas reservadas en bloque o datos de prueba? Se pregunta (§4).
 
 | Verificación | Resultado |
 |---|---|
@@ -116,7 +129,8 @@ Datos existentes: solo del **26 al 31-10-2026** (60 citas, 6 especialidades) y d
 |---|---|
 | **Modelo propio** (`Cita`, `EstadoCita`) con un traductor desde los campos SIGAH | El resto de la plataforma no debe conocer `NOM_PAC` ni `COD_EST` |
 | **Se valida el cuerpo, no solo el HTTP**: `estado != "OK"` → excepción tipada según `codigo` | Los errores llegan con HTTP 200 |
-| **Paginación por token en `desde`**. Si `total` no coincide con la cantidad de citas acumuladas → error, no un resultado parcial | Mientras no sepamos dónde viene el token, es mejor fallar que entregar una agenda incompleta |
+| **Paginación: se sigue `siguiente` → `desde` hasta que no venga.** Si un token se repite o se superan 100 páginas → error | Agenda completa; el tope evita un bucle infinito si SIGAH falla |
+| **Cualquier otra clave desconocida en la respuesta → error** | Un cambio de formato no documentado podría significar datos parciales |
 | **Ante agenda vacía, se valida el formato de `fecha`** antes de enviar | `fecha` sin hora devuelve "OK, 0 citas" falso |
 | **Desfase de `FEC_HORA` configurable, por defecto +4 h**. Se expone en hora local con zona (`America/Santiago`) | Evidencia en §1.1. Configurable porque no conocemos el comportamiento en invierno |
 | **"Agenda de un día local" = pedir dos días de la API y filtrar por fecha local** | Las citas locales después de las 20:00 caen en el día siguiente de la API |
@@ -165,7 +179,7 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 | 15:00 | 19:00 | `AGD-0000099015` |
 
 - La asociación coincide por **dos vías independientes**: el desfase horario (§1.1) y la posición de los pacientes en la secuencia (§1.3).
-- La API no expone la observación que las marca, así que no hay confirmación directa. Como se trata de escribir en producción, se pide a Jorge una confirmación de una línea antes de la primera escritura.
+- La API no expone la observación que las marca. **Jorge confirmó los tres ids el 30-10** (después de las pruebas, que el usuario decidió hacer con la evidencia anterior).
 - El CLI solo permite escribir sobre ids listados en `SIGAH_IDS_ESCRIBIBLES`.
 - Estado tras las pruebas (§1.4): `099013` y `099014` canceladas; `099015` agendada, sin usar.
 
@@ -176,14 +190,15 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 | # | Pregunta | Estado |
 |---|---|---|
 | 1 | Desfase de `FEC_HORA` | ✅ Resuelto con evidencia (+4 h, §1.1); no se pregunta. Riesgo de invierno documentado (§5) |
-| 2 | Lista completa de valores de `COD_EST` y su significado | Parcial: 1, 2 y 3 conocidos (§1.4). ¿Hay otros? |
-| 3 | Paginación: ¿en qué campo viene el token para `desde`? ¿Cuál es el tamaño de página? | Parcial: Jorge confirma que existe; el parámetro `desde` lo encontramos nosotros (§1.2) |
+| 2 | Lista completa de valores de `COD_EST` y su significado | Parcial: 1, 2 y 3 conocidos (§1.4). **¿Qué son 5 y 9?** (vistos el 08-10) |
+| 3 | Paginación: ¿en qué campo viene el token y cuál es el tamaño de página? | ✅ Resuelta (§1.2): `siguiente` → `desde`, páginas de 50 |
 | 4 | Lista completa de centros | Parcial: centro 3 = Hospital (Jorge), y la agenda de la captura es la del centro 3 (§1.3). Es el único con datos |
 | 5 | ¿Qué responden `confirmar` y `anular`? ¿Qué transiciones de estado se permiten? ¿Es idempotente confirmar dos veces? | ✅ Resuelta con pruebas (§1.4). Abierto: ¿por qué la confirmación tarda más de 10 s? ¿Es asíncrona? |
 | 6 | ¿Anular las citas de prueba gatilló notificaciones a los teléfonos registrados? | Pendiente: se anularon 2 citas de prueba (§1.4) |
 | 7 | Lista completa de códigos de error y su significado (vistos: `ERR-01` a `ERR-04`, `ERR-07`, `ERR-09`) | Pendiente |
 | 8 | ¿Los datos son reales? RUT con DV inválido, pacientes repetidos, agenda solo en 7 días | Pendiente |
-| 9 | Catálogo completo de especialidades (`URGE` no está en el Anexo A) | Pendiente |
+| 9 | Catálogo completo de especialidades (`URGE` y `VACU` no están en el Anexo A) | Pendiente |
+| 12 | 07-10: 20 pacientes con 5-6 citas de vacunación cada uno el mismo día (§2). ¿Es real? | Pendiente |
 | 10 | `OBS` sale `null` en la API, aunque en la interfaz tiene contenido. ¿Es un campo distinto? | Pendiente |
 | 11 | Vigencia de la API key y proceso de renovación | ✅ Resuelta: nueva key entregada |
 
@@ -193,7 +208,7 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 
 1. **Desfase horario sin confirmar.** Si se interpreta mal, se le informa al paciente una hora equivocada y algunas citas quedan en el día equivocado. El comportamiento en invierno es desconocido.
 2. **Estados posiblemente incompletos.** Conocemos 1, 2 y 3. Cualquier otro código queda como `DESCONOCIDO`: la plataforma no debe llamar ni escribir sobre esas citas sin revisión.
-3. **Paginación sin campo de token conocido.** Con más de 20 citas por día (lo normal en un hospital) podría haber páginas que no vemos. `total` no sirve como control fiable (§1.2). El cliente falla con un error explícito ante cualquier campo de respuesta desconocido, porque podría ser el token.
+3. **Paginación verificada en un solo día (07-10, 3 páginas).** `total` no sirve para detectar páginas faltantes, así que la completitud depende de que SIGAH entregue `siguiente` de forma consistente.
 4. **Confirmación lenta o asíncrona.** Si `confirmar` supera el timeout, el resultado es incierto y una relectura inmediata puede no reflejarlo todavía. La plataforma debe revisar esos casos más tarde, nunca reintentarlos a ciegas.
 5. **Las citas de prueba no se distinguen por API.** Para nuevas pruebas, pedir a Informática ids explícitos.
 6. **Inestabilidad.** Hay 502 intermitentes. Si coinciden con un POST, el resultado es incierto y queda en la auditoría para revisión manual.

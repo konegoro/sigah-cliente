@@ -7,7 +7,7 @@
 - Por defecto, SOLO LECTURA: únicamente peticiones `GET` a endpoints de lectura.
 - EXCEPCIÓN autorizada por el usuario: se puede confirmar y anular SOLO las 3 citas que Informática reservó para pruebas de integración ("El resto de la agenda no se debe modificar"):
   - `AGD-0000099013`, `AGD-0000099014` y `AGD-0000099015`: 15-12-2026, 14:00 / 14:30 / 15:00 hora local, centro 3, Medicina Interna.
-  - Identificadas por desfase horario y por estructura (HALLAZGOS §1.3 y §3.2). Jorge aún no las confirmó por escrito; el usuario decidió avanzar igual.
+  - Identificadas por desfase horario y por estructura (HALLAZGOS §1.3 y §3.2) y confirmadas por Jorge el 30-10. Estado actual: 099013 y 099014 canceladas; 099015 agendada (de reserva).
   - Escribir con el CLI y `SIGAH_IDS_ESCRIBIBLES` limitado a esos ids. Para probar transiciones que el cliente bloquea a propósito, se permite un POST directo, pero SOLO a esos mismos ids y con salida enmascarada.
   - Antes de cada escritura, releer la cita y verificar que fecha, hora, especialidad y centro coinciden con lo de arriba. Si no coinciden, NO escribir y avisar.
   - Anunciar al usuario cada escritura antes de ejecutarla (id, acción y para qué). Son solo 3 citas y una anulación no se puede revertir.

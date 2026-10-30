@@ -19,13 +19,14 @@ TIMEOUT_LECTURA = 10.0  # segundos
 TIMEOUT_ESCRITURA = 60.0  # segundos: confirmar/anular tardaron hasta 25 s en producción
 REINTENTOS = 3  # solo lecturas; las escrituras nunca se reintentan
 ESPERA_REINTENTO = 1.0  # segundos; se duplica en cada reintento (1, 2, 4)
+MAX_PAGINAS = 100  # tope de seguridad: páginas de 50 citas, el día más cargado observado tuvo 3
 
 # Estados desde los que se permite cada escritura (SIGAH rechaza el resto con ERR-07 / ERR-09).
 PUEDE_CONFIRMAR = frozenset({EstadoCita.AGENDADA})
 PUEDE_ANULAR = frozenset({EstadoCita.AGENDADA, EstadoCita.CONFIRMADA})
 
-# Una clave fuera de estas podría ser el token de paginación (no documentado): se falla antes que devolver datos parciales.
-CLAVES_LISTA = {"estado", "total", "citas"}
+# Una clave fuera de estas es un cambio de formato no documentado: se falla antes que devolver datos parciales.
+CLAVES_LISTA = {"estado", "total", "citas", "siguiente"}  # "siguiente": token de la próxima página
 CLAVES_DETALLE = {"estado", "cita"}
 
 
@@ -67,9 +68,23 @@ class SigahClient:
         """Citas del día `fecha` en hora local de Chile, ordenadas por inicio."""
         citas = []
         for dia in dias_sigah(fecha, self.desfase_horas):
-            datos = self._get("/citas", {"fecha": f"{dia} 00:00:00", "centro_id": self.centro_id})
-            citas += citas_del_dia(_extraer_citas(datos), fecha, self.desfase_horas)
+            citas += citas_del_dia(self._registros(dia), fecha, self.desfase_horas)
         return sorted(citas, key=lambda c: c.inicio)
+
+    def _registros(self, dia: date) -> list[dict]:
+        """Todos los registros de un día SIGAH, recorriendo las páginas (`siguiente` → parámetro `desde`)."""
+        params = {"fecha": f"{dia} 00:00:00", "centro_id": self.centro_id}
+        registros, tokens = [], set()
+        while True:
+            datos = self._get("/citas", params)
+            registros += _extraer_citas(datos)
+            token = datos.get("siguiente")
+            if not token:
+                return registros
+            if token in tokens or len(tokens) >= MAX_PAGINAS:
+                raise RespuestaInesperadaError(f"La paginación de {dia} no termina (token repetido o demasiadas páginas)")
+            tokens.add(token)
+            params = {**params, "desde": token}
 
     def cita(self, id_cita: str) -> Cita:
         """Una cita por su identificador (ej. "AGD-0000099013")."""
@@ -179,9 +194,10 @@ def _validar(respuesta: httpx.Response) -> dict:
 
 
 def _extraer_citas(datos: dict) -> list[dict]:
-    """De `{"estado", "total", "citas": [...]}` devuelve la lista de registros, validando la forma."""
+    """De `{"estado", "total", "citas": [...], "siguiente"?}` devuelve los registros de la página, validando la forma."""
     _exigir_claves(datos, CLAVES_LISTA)
     registros = datos.get("citas")
+    # "total" es la cantidad de esta página, no la del día.
     if not isinstance(registros, list) or datos.get("total") != len(registros):
         raise RespuestaInesperadaError("Lista de citas inconsistente con 'total'")
     return registros
