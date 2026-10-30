@@ -24,6 +24,11 @@ def test_mapea_registro_completo():
     assert (c.especialidad, c.centro_id) == ("MINT", 3)
 
 
+def test_estados_conocidos():
+    assert a_cita({**REGISTRO, "COD_EST": 2}, 4).estado is EstadoCita.CONFIRMADA
+    assert a_cita({**REGISTRO, "COD_EST": 3}, 4).estado is EstadoCita.CANCELADA
+
+
 def test_desfase_cruza_al_dia_anterior():
     # 00:30 en SIGAH es 20:30 del día anterior en hora local.
     c = a_cita({**REGISTRO, "FEC_HORA": "2026-10-28 00:30:00"}, desfase_horas=4)

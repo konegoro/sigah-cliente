@@ -9,7 +9,8 @@ from datetime import date, datetime, time, timedelta
 
 from .modelos import ZONA, Cita, EstadoCita, Paciente
 
-ESTADOS = {1: EstadoCita.AGENDADA}  # único valor confirmado contra la interfaz de SIGAH
+# 1: confirmado contra la interfaz de SIGAH. 2 y 3: observados al confirmar y anular citas de prueba.
+ESTADOS = {1: EstadoCita.AGENDADA, 2: EstadoCita.CONFIRMADA, 3: EstadoCita.CANCELADA}
 
 log = logging.getLogger("sigah.calidad")
 

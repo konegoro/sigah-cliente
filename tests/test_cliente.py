@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from sigah import (Auditoria, AutenticacionError, CitaNoEncontradaError, EscrituraNoPermitidaError,
-                   RespuestaInesperadaError, ResultadoInciertoError, ServicioNoDisponibleError,
-                   SigahClient)
+                   EstadoCita, RespuestaInesperadaError, ResultadoInciertoError, ServicioNoDisponibleError,
+                   SigahClient, SigahError)
 
 URL = "https://sigah.test/api/v1"
 pytestmark = pytest.mark.respx(base_url=URL, assert_all_called=False)
@@ -92,6 +92,22 @@ def test_no_confirma_si_el_estado_no_lo_permite(respx_mock):
     with pytest.raises(EscrituraNoPermitidaError):
         cliente(permitir_escritura=True).confirmar("AGD-1")
     assert not post.called
+
+
+def test_escritura_exitosa_en_texto_plano(respx_mock):
+    # Observado en producción: anular responde HTTP 200 con "OK" sin JSON.
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[detalle(), detalle({**REGISTRO, "COD_EST": 3})])
+    respx_mock.post("/citas/AGD-1/anular").respond(200, text="OK")
+    assert cliente(permitir_escritura=True).anular("AGD-1").estado is EstadoCita.CANCELADA
+
+
+def test_codigo_de_error_en_texto_plano(respx_mock):
+    # Observado en producción: re-confirmar una cita confirmada responde HTTP 200 con "ERR-07" sin JSON.
+    respx_mock.get("/citas/AGD-1").mock(return_value=detalle())
+    respx_mock.post("/citas/AGD-1/confirmar").respond(200, text="ERR-07")
+    with pytest.raises(SigahError) as error:
+        cliente(permitir_escritura=True).confirmar("AGD-1")
+    assert error.value.codigo == "ERR-07"
 
 
 def test_post_no_se_reintenta_y_el_resultado_es_incierto(respx_mock):

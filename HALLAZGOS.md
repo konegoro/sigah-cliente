@@ -1,7 +1,8 @@
 # HALLAZGOS — Cliente API SIGAH
 
-> **Estado:** borrador vivo. Observaciones del 28 y 29-10-2026 contra producción, **solo con peticiones GET**,
-> más una captura de la interfaz de SIGAH 4.2 enviada por Jorge (Informática) el 29-10.
+> **Estado:** borrador vivo. Observaciones del 28 y 29-10-2026 contra producción: lecturas con `GET` y
+> escrituras **solo sobre las 3 citas reservadas por Informática para pruebas** (§1.4), más una captura
+> de la interfaz de SIGAH 4.2 enviada por Jorge (Informática) el 29-10.
 > Manual de referencia: "Manual de Interfaz de Integración (API REST)", v1.4.
 > Ningún dato de paciente se copia en este documento.
 
@@ -14,7 +15,7 @@
 | 1 | Autenticación | `Authorization: Bearer <key>` | Cabecera `X-Auth-Token: <key>` | Sin esto no hay conexión |
 | 2 | Códigos HTTP de error | 400 / 401 / 500 | Errores de negocio con **HTTP 200** y `{"estado":"ERROR","codigo":...,"msg":...}` | 🔴 Hay que leer el cuerpo, no solo el HTTP |
 | 3 | Credencial expirada | 401 | **403** `ERR-01 "credencial expirada"`. Key inválida: 401 `"credencial no reconocida"` | El mismo `ERR-01` cubre casos distintos |
-| 4 | Códigos de error | `ERR-01`, `ERR-02` | Además **`ERR-03 "token de continuacion invalido"`** y **`ERR-04 "no existe"`** | Hay códigos no documentados |
+| 4 | Códigos de error | `ERR-01`, `ERR-02` | Además **`ERR-03 "token de continuacion invalido"`**, **`ERR-04 "no existe"`**, y en escrituras **`ERR-07`** (re-confirmar una confirmada) y **`ERR-09`** (confirmar una cancelada) | Hay códigos no documentados |
 | 5 | Errores de infraestructura | — | **502 Bad Gateway intermitentes**, en HTML de nginx (no JSON). Al reintentar, la misma petición responde bien | 🟠 Hacen falta reintentos en las lecturas |
 | 6 | Ruta inexistente | — | 404 `{"detail":"Not Found"}`, un tercer formato de error | — |
 | 7 | `centro_id` | Opcional (centro por defecto según la key) | **Obligatorio**: sin él, `ERR-02 "parametros insuficientes"`. Según Jorge, el **centro 3 es el Hospital**, y es el único con datos (se probaron 0, -1 y del 1 al 100 en distintos puntos). **Un centro inexistente responde `OK` con 0 citas**, igual que un centro sin agenda. No hay endpoint de catálogo (`/centros` → 404) | 🟠 Un `centro_id` equivocado da una agenda vacía silenciosa |
@@ -24,7 +25,7 @@
 | 10 | Forma de la respuesta | Lista JSON | `{"estado":"OK","total":N,"citas":[...]}`. Detalle: `{"estado":"OK","cita":{...}}` | — |
 | 11 | Nombres de campos | `id, rut, nombre, fechaHora, estado, especialidad, profesional, telefono, email` | `ID_CITA, RUT_PAC, NOM_PAC, FEC_HORA, COD_EST, COD_PRO, NOM_PRO, MEDICO, CENTRO, TEL_PAC, OBS` | Todos distintos |
 | 12 | Id de cita | Entero (`10432`) | Texto (`"AGD-0000010168"`). `/citas/10168` responde `ERR-04` | — |
-| 13 | Estado | Texto: `AGENDADA` / `CONFIRMADA` / `CANCELADA` | **Número** `COD_EST`. Solo se observó `1`. En la interfaz, esas mismas citas figuran como "AGENDADA" → **`1 = AGENDADA`** | 🔴 Faltan los demás valores |
+| 13 | Estado | Texto: `AGENDADA` / `CONFIRMADA` / `CANCELADA` | **Número** `COD_EST`: **`1 = AGENDADA`** (contrastado con la interfaz), **`2 = CONFIRMADA`** y **`3 = CANCELADA`** (observados al escribir, §1.4) | 🟠 Puede haber otros (ej. atendida, no asistió) |
 | 14 | Filtro `estado` | Filtra por estado | **Se ignora**: `estado=CONFIRMADA` devuelve las citas con `COD_EST=1` | 🟠 Hay que filtrar del lado del cliente |
 | 15 | Paginación | v1.4: "se incorpora paginación (ver Anexo B)" | **El Anexo B no existe.** Jorge confirma que hay paginación. Es por **token de continuación** en el parámetro **`desde`**. Ninguna respuesta observada trajo token (máximo 20 citas por día). Unos 20 parámetros de tamaño de página o de rango de fechas se ignoran. Detalle en §1.2 | 🔴 No sabemos en qué campo viene el token |
 | 16 | Especialidad | Nombre (`"Traumatología"`). Anexo A con 5 códigos | Código (`COD_PRO`) y nombre en mayúsculas sin tildes (`NOM_PRO`). Aparece **`URGE`** (Urgencia Ambulatoria), que no está en el catálogo | — |
@@ -33,6 +34,23 @@
 | 19 | Formatos | ISO `2026-10-06T08:00:00`, RUT sin puntos, teléfono `+569XXXXXXXX`, nombre "Nombres Apellidos" | Fecha con espacio, RUT con puntos, teléfono con espacios (`+56 9 XXXX XXXX`), nombre `"APELLIDOS, NOMBRES"` en mayúsculas | Hay que normalizar |
 | 20 | Ambiente QA | "En revisión" | No existe. Informática reservó **3 citas de prueba en producción** (15-12-2026); "el resto de la agenda no se debe modificar" | Escritura solo sobre esas 3 (§3.1) |
 | 21 | Versión del manual | v1.4 (04-2021) | El documento tiene fecha 14-08-2019 (la de la v1.3) y "Revisado por: (pendiente)". Los cambios de la v1.4 (paginación, fechas) no están descritos | Todo el manual es sospechoso |
+| 22 | Respuesta de `confirmar` / `anular` | No documentada | **Texto plano, no JSON**: `OK` si se aplica, `ERR-xx` si se rechaza, ambos con **HTTP 200** | 🔴 Un cliente que espera JSON informa error en una escritura exitosa |
+| 23 | Latencia de `confirmar` | — | La primera confirmación **no respondió en 10 s** y el cambio apareció **entre 10 y 27 s después** de enviarla. Una relectura inmediata al timeout todavía mostraba la cita agendada | 🔴 Un reintento automático habría confirmado dos veces |
+
+### 1.4 Pruebas de escritura (29-10-2026)
+
+Sobre las citas reservadas por Informática (§3.2), con autorización explícita. Cada escritura se precedió de una relectura que verificaba fecha, hora, especialidad y centro.
+
+| Paso | Cita | Acción | Resultado |
+|---|---|---|---|
+| A1 | 099013 (agendada) | `confirmar` (cliente, timeout 10 s) | Timeout sin respuesta; el cliente informó **resultado incierto** y no reintentó. La relectura inmediata mostraba `COD_EST=1`; ~17 s después, `COD_EST=2` |
+| A2 | 099013 (confirmada) | `confirmar` otra vez (POST directo) | HTTP 200, al instante, cuerpo `ERR-07`. Estado sin cambios |
+| B1 | 099014 (agendada) | `anular` (cliente) | HTTP 200 en 20 ms, cuerpo `OK`, `COD_EST=3`. El cliente lo informó como error por no ser JSON: **corregido** |
+| B2 | 099014 (cancelada) | `confirmar` (POST directo) | HTTP 200, cuerpo `ERR-09`. Estado sin cambios: SIGAH valida transiciones |
+| B3 | 099013 (confirmada) | `anular` (cliente corregido) | `OK`, `COD_EST=3`. Flujo completo correcto |
+| — | 099015 | No se tocó | Queda de reserva |
+
+Las otras 17 citas del 15-12 siguen agendadas. Los cuerpos de texto plano se identificaron comparando el SHA-256 guardado en la auditoría con candidatos (`OK`, `ERR-00`…`ERR-99`), sin guardar respuestas en claro.
 
 ### 1.1 Evidencia del desfase horario de +4 h
 
@@ -102,7 +120,9 @@ Datos existentes: solo del **26 al 31-10-2026** (60 citas, 6 especialidades) y d
 | **Ante agenda vacía, se valida el formato de `fecha`** antes de enviar | `fecha` sin hora devuelve "OK, 0 citas" falso |
 | **Desfase de `FEC_HORA` configurable, por defecto +4 h**. Se expone en hora local con zona (`America/Santiago`) | Evidencia en §1.1. Configurable porque no conocemos el comportamiento en invierno |
 | **"Agenda de un día local" = pedir dos días de la API y filtrar por fecha local** | Las citas locales después de las 20:00 caen en el día siguiente de la API |
-| **`COD_EST`: `1 → AGENDADA`. Cualquier otro valor → `DESCONOCIDO`**, nunca se adivina | El 1 está confirmado contra la interfaz; los demás no los conocemos |
+| **`COD_EST`: `1 → AGENDADA`, `2 → CONFIRMADA`, `3 → CANCELADA`. Cualquier otro valor → `DESCONOCIDO`**, nunca se adivina | 1 contrastado con la interfaz; 2 y 3 observados en las pruebas de escritura |
+| **Respuestas en texto plano**: `OK` es éxito; `ERR-xx` se convierte en la excepción del código | Así responden `confirmar` y `anular` (§1.4) |
+| **Timeout de escritura propio (60 s)**, separado del de lectura (10 s) | La confirmación tardó más de 10 s en producción |
 | **El filtro por estado se aplica en el cliente** | El servidor lo ignora |
 | **Reintentos solo en GET** (502/503/504, timeout, error de conexión) con backoff | Los 502 son intermitentes. Las lecturas son seguras de repetir |
 | **POST nunca se reintenta automáticamente.** Ante timeout se consulta `GET /citas/{id}` y se reporta "resultado incierto" | Anular notifica al paciente: repetirlo puede duplicar el efecto |
@@ -146,6 +166,7 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 - La asociación coincide por **dos vías independientes**: el desfase horario (§1.1) y la posición de los pacientes en la secuencia (§1.3).
 - La API no expone la observación que las marca, así que no hay confirmación directa. Como se trata de escribir en producción, se pide a Jorge una confirmación de una línea antes de la primera escritura.
 - El CLI solo permite escribir sobre ids listados en `SIGAH_IDS_ESCRIBIBLES`.
+- Estado tras las pruebas (§1.4): `099013` y `099014` canceladas; `099015` agendada, sin usar.
 
 ---
 
@@ -154,12 +175,12 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 | # | Pregunta | Estado |
 |---|---|---|
 | 1 | Desfase de `FEC_HORA` | ✅ Resuelto con evidencia (+4 h, §1.1); no se pregunta. Riesgo de invierno documentado (§5) |
-| 2 | Lista completa de valores de `COD_EST` y su significado | Parcial: `1 = AGENDADA` (deducido de la interfaz) |
+| 2 | Lista completa de valores de `COD_EST` y su significado | Parcial: 1, 2 y 3 conocidos (§1.4). ¿Hay otros? |
 | 3 | Paginación: ¿en qué campo viene el token para `desde`? ¿Cuál es el tamaño de página? | Parcial: Jorge confirma que existe; el parámetro `desde` lo encontramos nosotros (§1.2) |
 | 4 | Lista completa de centros | Parcial: centro 3 = Hospital (Jorge), y la agenda de la captura es la del centro 3 (§1.3). Es el único con datos |
-| 5 | ¿Qué responden `confirmar` y `anular`? ¿Qué transiciones de estado se permiten? ¿Es idempotente confirmar dos veces? | Se verificará con las citas de prueba |
-| 6 | Confirmar los `ID_CITA` de las 3 citas de prueba (§3.2). ¿Escribir sobre ellas gatilla notificaciones? | Parcial: ids identificados por dos vías; falta la confirmación |
-| 7 | Lista completa de códigos de error (vistos: `ERR-01` a `ERR-04`) | Pendiente |
+| 5 | ¿Qué responden `confirmar` y `anular`? ¿Qué transiciones de estado se permiten? ¿Es idempotente confirmar dos veces? | ✅ Resuelta con pruebas (§1.4). Abierto: ¿por qué la confirmación tarda más de 10 s? ¿Es asíncrona? |
+| 6 | ¿Anular las citas de prueba gatilló notificaciones a los teléfonos registrados? | Pendiente: se anularon 2 citas de prueba (§1.4) |
+| 7 | Lista completa de códigos de error y su significado (vistos: `ERR-01` a `ERR-04`, `ERR-07`, `ERR-09`) | Pendiente |
 | 8 | ¿Los datos son reales? RUT con DV inválido, pacientes repetidos, agenda solo en 7 días | Pendiente |
 | 9 | Catálogo completo de especialidades (`URGE` no está en el Anexo A) | Pendiente |
 | 10 | `OBS` sale `null` en la API, aunque en la interfaz tiene contenido. ¿Es un campo distinto? | Pendiente |
@@ -170,10 +191,10 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 ## 5. Riesgos antes de producción
 
 1. **Desfase horario sin confirmar.** Si se interpreta mal, se le informa al paciente una hora equivocada y algunas citas quedan en el día equivocado. El comportamiento en invierno es desconocido.
-2. **Estados incompletos.** Solo conocemos `1`. Una cita cancelada con un código desconocido queda como `DESCONOCIDO`: la plataforma no debe llamar ni escribir sobre ellas sin revisión.
+2. **Estados posiblemente incompletos.** Conocemos 1, 2 y 3. Cualquier otro código queda como `DESCONOCIDO`: la plataforma no debe llamar ni escribir sobre esas citas sin revisión.
 3. **Paginación sin campo de token conocido.** Con más de 20 citas por día (lo normal en un hospital) podría haber páginas que no vemos. `total` no sirve como control fiable (§1.2). El cliente falla con un error explícito ante cualquier campo de respuesta desconocido, porque podría ser el token.
-4. **Escritura no verificada contra el sistema real.** El código de respuesta, el formato y los efectos de `confirmar`/`anular` son supuestos hasta probar con las 3 citas reservadas.
-5. **Las citas de prueba no se distinguen por API.** Identificarlas por hora es frágil; se necesitan los ids confirmados.
+4. **Confirmación lenta o asíncrona.** Si `confirmar` supera el timeout, el resultado es incierto y una relectura inmediata puede no reflejarlo todavía. La plataforma debe revisar esos casos más tarde, nunca reintentarlos a ciegas.
+5. **Las citas de prueba no se distinguen por API.** Para nuevas pruebas, pedir a Informática ids explícitos.
 6. **Inestabilidad.** Hay 502 intermitentes. Si coinciden con un POST, el resultado es incierto y queda en la auditoría para revisión manual.
 7. **Agenda vacía silenciosa.** Una petición mal formada puede responder "OK, 0 citas". Conviene alertar en la plataforma cuando un día hábil viene vacío.
 8. **Datos personales y de salud.** La auditoría y los logs no deben guardar datos de pacientes en claro; aplica la Ley 19.628 / Ley 21.719.
@@ -184,7 +205,8 @@ Según la interfaz, Informática reservó 3 citas el 15-12-2026 (Medicina Intern
 
 ## 6. Cómo se verificó
 
-- Solo peticiones `GET`, con volumen bajo (unas 110 llamadas en total) y salida enmascarada (sin datos personales).
+- Lecturas con `GET`, con volumen bajo (unas 150 llamadas en total) y salida enmascarada (sin datos personales).
+- 5 escrituras, solo sobre 2 de las 3 citas reservadas para pruebas (§1.4), todas auditadas.
 - Fechas consultadas: 01-10, 13-10, 19-10 al 31-10, varias de noviembre y diciembre, incluido el 15-12-2026. Centros 1 al 10.
 - Rutas probadas: `/citas` (con variantes de `fecha`, `centro_id`, `estado` y unos 20 nombres de parámetros de paginación), `/citas/{id}` (id válido, inexistente y numérico) y rutas de documentación (`/docs`, `/openapi.json`), que no existen.
 - Contraste con la captura de la interfaz de SIGAH 4.2 (agenda del 15-12-2026) enviada por Jorge.

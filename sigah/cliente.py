@@ -30,11 +30,12 @@ class SigahClient:
 
     def __init__(self, api_key: str, centro_id: int, *, url_base: str = URL_BASE, desfase_horas: int = 4,
                  permitir_escritura: bool = False, auditoria: Auditoria | None = None,
-                 timeout: float = 10.0, reintentos: int = 3, espera: float = 1.0):
+                 timeout: float = 10.0, timeout_escritura: float = 60.0, reintentos: int = 3, espera: float = 1.0):
         self.centro_id = centro_id
         self.desfase_horas = desfase_horas
         self.permitir_escritura = permitir_escritura
         self._auditoria = auditoria
+        self._timeout_escritura = timeout_escritura  # confirmar tardó más de 10 s en producción
         self._reintentos = reintentos
         self._espera = espera
         self._http = httpx.Client(base_url=url_base, timeout=timeout, headers={"X-Auth-Token": api_key})
@@ -81,7 +82,7 @@ class SigahClient:
         if actual.estado not in estados_validos:
             raise EscrituraNoPermitidaError(f"{id_cita} está {actual.estado.value}; no se puede {accion}")
 
-        peticion = self._http.build_request("POST", f"/citas/{id_cita}/{accion}")
+        peticion = self._http.build_request("POST", f"/citas/{id_cita}/{accion}", timeout=self._timeout_escritura)
         self._auditar(peticion, "intento")
         # Nunca se reintenta: anular notifica al paciente y repetirlo podría duplicar el efecto.
         try:
@@ -96,8 +97,8 @@ class SigahClient:
             estado = self.cita(id_cita).estado.value
         except SigahError:
             estado = "no disponible"
-        return ResultadoInciertoError(f"No se sabe si se aplicó '{accion}' a {id_cita} ({causa}); "
-                                      f"estado observado: {estado}. Revisar antes de reintentar.")
+        return ResultadoInciertoError(f"No se sabe si se aplicó '{accion}' a {id_cita} ({causa}); estado observado: "
+                                      f"{estado}, pero SIGAH puede aplicarlo con retraso. Revisar antes de reintentar.")
 
     def _get(self, ruta: str, params: dict | None = None) -> dict:
         peticion = self._http.build_request("GET", ruta, params=params)
@@ -138,6 +139,12 @@ def _validar(respuesta: httpx.Response) -> dict:
     try:
         datos = respuesta.json()
     except ValueError:
+        # Las escrituras responden en texto plano: "OK" o un código (ej. "ERR-07").
+        texto = respuesta.text.strip()
+        if texto == "OK" and respuesta.status_code == 200:
+            return {"estado": "OK"}
+        if re.fullmatch(r"ERR-\d+", texto):
+            raise POR_CODIGO.get(texto, SigahError)(f"SIGAH respondió {texto}", texto) from None
         raise RespuestaInesperadaError(f"HTTP {respuesta.status_code}: respuesta no es JSON") from None
     if not isinstance(datos, dict):
         raise RespuestaInesperadaError(f"HTTP {respuesta.status_code}: se esperaba un objeto JSON")
