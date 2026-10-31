@@ -2,6 +2,8 @@
 import logging
 from datetime import datetime
 
+import pytest
+
 from sigah.mapeo import a_cita
 from sigah.modelos import ZONA, EstadoCita
 
@@ -27,6 +29,17 @@ def test_mapea_registro_completo():
 def test_estados_conocidos():
     assert a_cita({**REGISTRO, "COD_EST": 2}, 4).estado is EstadoCita.CONFIRMADA
     assert a_cita({**REGISTRO, "COD_EST": 3}, 4).estado is EstadoCita.CANCELADA
+
+
+@pytest.mark.parametrize("valor", [3, "3", " 3 "])
+def test_centro_acepta_numero_o_texto(valor):
+    assert a_cita({**REGISTRO, "CENTRO": valor}, 4).centro_id == 3
+
+
+@pytest.mark.parametrize("valor", ["tres", "3.5", None, True])
+def test_centro_invalido_queda_en_none_y_se_registra(caplog, valor):
+    assert a_cita({**REGISTRO, "CENTRO": valor}, 4).centro_id is None
+    assert "CENTRO ausente o no interpretable" in caplog.text
 
 
 def test_desfase_cruza_al_dia_anterior():

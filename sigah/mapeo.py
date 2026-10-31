@@ -44,7 +44,6 @@ def a_cita(reg: dict, desfase_horas: int) -> Cita | None:
         return None
 
     apellidos, nombres = _nombre(id_, reg.get("NOM_PAC"))
-    centro = reg.get("CENTRO")
     return Cita(
         id=id_,
         inicio=inicio,
@@ -58,7 +57,7 @@ def a_cita(reg: dict, desfase_horas: int) -> Cita | None:
         especialidad=_texto(reg.get("COD_PRO")),
         especialidad_nombre=_texto(reg.get("NOM_PRO")),
         profesional=_texto(reg.get("MEDICO")),
-        centro_id=centro if isinstance(centro, int) else None,
+        centro_id=_centro(id_, reg.get("CENTRO")),
     )
 
 
@@ -81,6 +80,16 @@ def _estado(id_: str, valor) -> EstadoCita:
         log.warning("%s: COD_EST desconocido (%r)", id_, valor)
         return EstadoCita.DESCONOCIDO
     return estado
+
+
+def _centro(id_: str, valor) -> int | None:
+    """Acepta 3 o "3"; cualquier otro valor queda en None."""
+    if isinstance(valor, int) and not isinstance(valor, bool):  # bool es subclase de int: True no es un centro
+        return valor
+    if isinstance(valor, str) and valor.strip().isdecimal():
+        return int(valor)
+    log.warning("%s: CENTRO ausente o no interpretable", id_)
+    return None
 
 
 def _rut(id_: str, valor) -> str | None:
