@@ -22,12 +22,12 @@ def dias_sigah(fecha: date, desfase_horas: int) -> list[date]:
     return sorted({inicio.date(), fin.date()})
 
 
-def citas_del_dia(registros: list[dict], fecha: date, desfase_horas: int) -> list[Cita]:
-    """Mapea solo los registros cuyo inicio cae en el día local `fecha`."""
+def citas_de_fechas(registros: list[dict], fechas: set[date], desfase_horas: int) -> list[Cita]:
+    """Mapea solo los registros cuyo inicio cae en alguna de las `fechas` locales."""
     citas = []
     for reg in registros:
         inicio = _inicio(reg.get("FEC_HORA"), desfase_horas)
-        if inicio is not None and inicio.date() != fecha:
+        if inicio is not None and inicio.date() not in fechas:
             continue  # pertenece a otro día local
         cita = a_cita(reg, desfase_horas)
         if cita is not None:

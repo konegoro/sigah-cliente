@@ -46,6 +46,7 @@ sigah agenda 2026-12-15            # → 20 citas
 
 ```bash
 sigah agenda 2026-12-15            # citas del día (hora de Chile) + alertas
+sigah agenda 2026-10-26 --dias 5   # varios días: del 26 al 30-10
 sigah cita AGD-0000099013
 sigah confirmar AGD-0000099013     # solo si el id está en SIGAH_IDS_ESCRIBIBLES
 sigah anular AGD-0000099013
@@ -65,6 +66,7 @@ from sigah import Auditoria, SigahClient, revisar
 
 with Auditoria() as auditoria, SigahClient(api_key, auditoria=auditoria) as cliente:
     citas = cliente.agenda(date(2026, 12, 15))   # list[Cita], día local completo
+    semana = cliente.agenda(date(2026, 10, 26), dias=5)
     for alerta in revisar(citas):
         print(alerta.tipo, alerta.cita_ids)
 
@@ -88,7 +90,7 @@ Todos heredan de `SigahError`.
 
 ## Comportamiento
 
-- **Día local:** `agenda(fecha)` entrega las citas de 00:00 a 23:59 hora de Chile, consultando los días de SIGAH necesarios por el desfase.
+- **Día local:** `agenda(fecha, dias=1)` entrega las citas de 00:00 a 23:59 hora de Chile de cada día pedido, consultando los días de SIGAH necesarios por el desfase (cada uno una sola vez) y recorriendo todas sus páginas.
 - **Reintentos:** las lecturas se reintentan ante fallas de red o HTTP 5xx, con espera exponencial. Las escrituras **nunca** se reintentan.
 - **Antes de escribir** se relee la cita y se valida su estado.
 - **Datos sucios:** solo `id` e `inicio` son imprescindibles; cualquier otro dato inválido queda en `None` y se registra en el logger `sigah.calidad`, sin datos personales.

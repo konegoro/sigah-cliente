@@ -1,14 +1,14 @@
 """Cliente HTTP de la API de agenda SIGAH."""
 import re
 import time
-from datetime import date
+from datetime import date, timedelta
 
 import httpx
 
 from .auditoria import Auditoria
 from .errores import (POR_CODIGO, AutenticacionError, EscrituraNoPermitidaError, RespuestaInesperadaError,
                       ResultadoInciertoError, ServicioNoDisponibleError, SigahError, SolicitudInvalidaError)
-from .mapeo import a_cita, citas_del_dia, dias_sigah
+from .mapeo import a_cita, citas_de_fechas, dias_sigah
 from .modelos import Cita, EstadoCita
 
 # Valores por defecto: con ellos basta configurar la API key. Todos se pueden cambiar.
@@ -20,6 +20,7 @@ TIMEOUT_ESCRITURA = 60.0  # segundos: confirmar/anular tardaron hasta 25 s en pr
 REINTENTOS = 3  # solo lecturas; las escrituras nunca se reintentan
 ESPERA_REINTENTO = 1.0  # segundos; se duplica en cada reintento (1, 2, 4)
 MAX_PAGINAS = 100  # tope de seguridad: páginas de 50 citas, el día más cargado observado tuvo 3
+MAX_DIAS = 31  # tope de `agenda(dias=...)`: un error de tipeo no debe lanzar miles de peticiones a producción
 
 # Estados desde los que se permite cada escritura (SIGAH rechaza el resto con ERR-07 / ERR-09).
 PUEDE_CONFIRMAR = frozenset({EstadoCita.AGENDADA})
@@ -64,11 +65,16 @@ class SigahClient:
     def close(self) -> None:
         self._http.close()
 
-    def agenda(self, fecha: date) -> list[Cita]:
-        """Citas del día `fecha` en hora local de Chile, ordenadas por inicio."""
+    def agenda(self, fecha: date, dias: int = 1) -> list[Cita]:
+        """Citas de `fecha` y los `dias - 1` días siguientes, en hora local de Chile, ordenadas por inicio."""
+        if not 1 <= dias <= MAX_DIAS:
+            raise ValueError(f"dias debe estar entre 1 y {MAX_DIAS}, no {dias}")
+        fechas = {fecha + timedelta(days=i) for i in range(dias)}
+        # Días locales consecutivos comparten días de SIGAH: cada uno se pide una sola vez.
+        dias_a_pedir = sorted({d for f in fechas for d in dias_sigah(f, self.desfase_horas)})
         citas = []
-        for dia in dias_sigah(fecha, self.desfase_horas):
-            citas += citas_del_dia(self._registros(dia), fecha, self.desfase_horas)
+        for dia in dias_a_pedir:
+            citas += citas_de_fechas(self._registros(dia), fechas, self.desfase_horas)
         return sorted(citas, key=lambda c: c.inicio)
 
     def _registros(self, dia: date) -> list[dict]:

@@ -12,7 +12,7 @@ from datetime import date, time
 from dotenv import find_dotenv, load_dotenv
 
 from .auditoria import Auditoria
-from .cliente import CENTRO_ID, SigahClient
+from .cliente import CENTRO_ID, MAX_DIAS, SigahClient
 from .errores import SigahError
 from .modelos import Cita
 from .reglas import revisar
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _agenda(cliente: SigahClient, args: argparse.Namespace) -> None:
-    citas = cliente.agenda(args.fecha)
+    citas = cliente.agenda(args.fecha, args.dias)
     for c in citas:
         print(_linea(c, args.completo))
     print(f"{len(citas)} citas")
@@ -77,6 +77,12 @@ def _booleano(valor: str) -> bool:
     return opciones[valor.strip().lower()]
 
 
+def _dias(valor: str) -> int:
+    if not valor.isdecimal() or not 1 <= int(valor) <= MAX_DIAS:
+        raise argparse.ArgumentTypeError(f"debe ser un entero entre 1 y {MAX_DIAS}, no {valor!r}")
+    return int(valor)
+
+
 def _desde_env(**variables) -> dict:
     """{parámetro: valor} solo para las variables de entorno definidas; los valores por defecto viven en la librería."""
     return {param: convertir(os.environ[var]) for var, (param, convertir) in variables.items() if os.environ.get(var)}
@@ -88,8 +94,9 @@ def _parser() -> argparse.ArgumentParser:
     comunes.add_argument("--completo", action="store_true", help="mostrar datos personales sin enmascarar")
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    p = sub.add_parser("agenda", parents=[comunes], help="citas de un día (hora local de Chile)")
+    p = sub.add_parser("agenda", parents=[comunes], help="citas de uno o más días (hora local de Chile)")
     p.add_argument("fecha", type=date.fromisoformat, help="YYYY-MM-DD")
+    p.add_argument("--dias", type=_dias, default=1, help=f"cantidad de días desde la fecha (1 a {MAX_DIAS}, por defecto 1)")
     p.add_argument("--centro", type=int, help=f"centro_id (por defecto SIGAH_CENTRO_ID o {CENTRO_ID})")
     for comando, ayuda in [("cita", "una cita por id"),
                            ("confirmar", "confirma una cita (el id debe estar en SIGAH_IDS_ESCRIBIBLES)"),

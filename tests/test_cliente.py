@@ -94,6 +94,28 @@ def test_agenda_une_dos_dias_sigah_y_filtra_por_dia_local(respx_mock):
     assert {c.request.url.params["centro_id"] for c in ruta.calls} == {"3"}
 
 
+def test_agenda_de_varios_dias_pide_cada_dia_sigah_una_sola_vez(respx_mock):
+    # Días locales 15 y 16 = días SIGAH 15, 16 y 17; el 16 lo necesitan ambos, pero se pide una vez.
+    por_dia = {
+        "2026-12-15 00:00:00": lista({**REGISTRO, "ID_CITA": "D14-NOCHE", "FEC_HORA": "2026-12-15 02:00:00"},
+                                     {**REGISTRO, "ID_CITA": "D15", "FEC_HORA": "2026-12-15 12:00:00"}),
+        "2026-12-16 00:00:00": lista({**REGISTRO, "ID_CITA": "D16", "FEC_HORA": "2026-12-16 12:00:00"}),
+        "2026-12-17 00:00:00": lista({**REGISTRO, "ID_CITA": "D16-NOCHE", "FEC_HORA": "2026-12-17 01:00:00"},
+                                     {**REGISTRO, "ID_CITA": "D17", "FEC_HORA": "2026-12-17 12:00:00"}),
+    }
+    ruta = respx_mock.get("/citas").mock(side_effect=lambda req: por_dia[req.url.params["fecha"]])
+    citas = cliente().agenda(date(2026, 12, 15), dias=2)
+    assert [c.id for c in citas] == ["D15", "D16", "D16-NOCHE"]
+    assert ruta.call_count == 3
+
+
+@pytest.mark.parametrize("dias", [0, 32])
+def test_agenda_rechaza_dias_fuera_de_rango_sin_llamar_a_sigah(respx_mock, dias):
+    with pytest.raises(ValueError):
+        cliente().agenda(date(2026, 12, 15), dias=dias)
+    assert not respx_mock.calls
+
+
 def test_total_inconsistente(respx_mock):
     respx_mock.get("/citas").respond(200, json={"estado": "OK", "total": 30, "citas": [REGISTRO]})
     with pytest.raises(RespuestaInesperadaError):

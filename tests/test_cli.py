@@ -37,6 +37,21 @@ def test_escritura_bloqueada_si_el_id_no_esta_listado(monkeypatch, respx_mock, c
     assert not respx_mock.calls
 
 
+@pytest.mark.respx(base_url=URL_BASE)
+def test_dias_llega_al_cliente(respx_mock):
+    ruta = respx_mock.get("/citas").respond(200, json={"estado": "OK", "total": 0, "citas": []})
+    assert main(["agenda", "2026-12-15", "--dias", "2"]) == 0
+    assert ruta.call_count == 3  # días locales 15 y 16 = días SIGAH 15, 16 y 17
+
+
+@pytest.mark.parametrize("dias", ["0", "-1", "dos", "32", "3000000"])
+def test_dias_invalido(capsys, dias):
+    with pytest.raises(SystemExit) as salida:
+        main(["agenda", "2026-12-15", "--dias", dias])
+    assert salida.value.code == 2
+    assert "entre 1 y 31" in capsys.readouterr().err
+
+
 def test_configuracion_invalida(monkeypatch, capsys):
     monkeypatch.setenv("SIGAH_DESFASE_HORAS", "cuatro")
     assert main(["agenda", "2026-12-15"]) == 2
