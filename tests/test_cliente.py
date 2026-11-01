@@ -53,6 +53,37 @@ def test_get_agota_reintentos(respx_mock):
         cliente(reintentos=2).cita("AGD-1")
 
 
+@pytest.mark.parametrize("retry_after, espera", [
+    ("7", 7),                               # segundos: se respeta
+    ("3600", 60),                           # sobre el tope: se limita a MAX_RETRY_AFTER
+    ("Wed, 21 Oct 2026 07:28:00 GMT", 0),   # fecha: se ignora y rige el backoff normal (0 en estos tests)
+])
+def test_get_reintenta_429_respetando_retry_after(respx_mock, monkeypatch, retry_after, espera):
+    esperas = []
+    monkeypatch.setattr("sigah.cliente.time.sleep", esperas.append)  # registra la espera en vez de dormir
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[
+        httpx.Response(429, headers={"Retry-After": retry_after}), detalle()])
+    assert cliente().cita("AGD-1").id == "AGD-1"
+    assert esperas == [espera]
+
+
+def test_retry_after_solo_aplica_a_la_falla_que_lo_pidio(respx_mock, monkeypatch):
+    esperas = []
+    monkeypatch.setattr("sigah.cliente.time.sleep", esperas.append)
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[
+        httpx.Response(429, headers={"Retry-After": "7"}), HTML_502, detalle()])
+    SigahClient("clave", url_base=URL, espera=1).cita("AGD-1")
+    assert esperas == [7, 2]  # tras el 502 vuelve el backoff normal (1, 2, 4), no los 7 s del 429
+
+
+def test_post_con_429_no_se_aplico_y_no_es_incierto(respx_mock):
+    respx_mock.get("/citas/AGD-1").mock(return_value=detalle())
+    post = respx_mock.post("/citas/AGD-1/confirmar").respond(429)
+    with pytest.raises(ServicioNoDisponibleError, match="no se aplicó"):
+        cliente(permitir_escritura=True).confirmar("AGD-1")
+    assert post.call_count == 1  # tampoco se reintenta
+
+
 def test_clave_desconocida_falla_en_vez_de_devolver_datos_parciales(respx_mock):
     respx_mock.get("/citas").respond(
         200, json={"estado": "OK", "total": 1, "citas": [REGISTRO], "cursor": "abc"})

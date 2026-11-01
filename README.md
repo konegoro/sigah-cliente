@@ -91,7 +91,7 @@ Todos heredan de `SigahError`.
 ## Comportamiento
 
 - **Día local:** `agenda(fecha, dias=1)` entrega las citas de 00:00 a 23:59 hora de Chile de cada día pedido, consultando los días de SIGAH necesarios por el desfase (cada uno una sola vez) y recorriendo todas sus páginas.
-- **Reintentos:** las lecturas se reintentan ante fallas de red o HTTP 5xx, con espera exponencial. Las escrituras **nunca** se reintentan.
+- **Reintentos:** las lecturas se reintentan ante fallas de red o HTTP 5xx, con espera exponencial, y ante HTTP 429 esperando lo que indique `Retry-After`. Las escrituras **nunca** se reintentan.
 - **Antes de escribir** se relee la cita y se valida su estado.
 - **Datos sucios:** solo `id` e `inicio` son imprescindibles; cualquier otro dato inválido queda en `None` y se registra en el logger `sigah.calidad`, sin datos personales.
 - **Auditoría:** cada llamada HTTP queda en SQLite con su cuerpo enmascarado, el SHA-256 del original y el `x-cloud-trace-context` de SIGAH.

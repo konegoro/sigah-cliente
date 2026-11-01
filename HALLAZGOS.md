@@ -152,7 +152,8 @@ Días con datos: **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Ni
 | **`COD_EST`: `1 → AGENDADA`, `2 → CONFIRMADA`, `3 → CANCELADA`. Cualquier otro valor → `DESCONOCIDO`**, nunca se adivina | 1 contrastado con la interfaz; 2 y 3 observados en las pruebas de escritura |
 | **El filtro por estado se aplica en el cliente** | El servidor lo ignora |
 | **Reintentos solo en lecturas** (red caída, timeout, HTTP 5xx), con espera exponencial (1, 2, 4 s) | Los 502 son intermitentes y leer es seguro de repetir |
-| **Las escrituras nunca se reintentan.** Ante timeout o 5xx se relee la cita y se informa "resultado incierto" | Una confirmación se aplicó después de su timeout (A1), y no se sabe si anular notifica al paciente cada vez |
+| **HTTP 429 en lecturas: se reintenta esperando lo que pida `Retry-After`** (en segundos, con tope de 60 s; si no viene, la espera normal) | No se observó, pero SIGAH corre en Google Cloud Run, que responde 429 cuando se queda sin instancias disponibles |
+| **Las escrituras nunca se reintentan.** Ante timeout o 5xx se relee la cita y se informa "resultado incierto". Ante 429 se informa que **no se aplicó** | Una confirmación se aplicó después de su timeout (A1), y no se sabe si anular notifica al paciente cada vez. Un 429, en cambio, indica que la petición se rechazó sin procesarse |
 | **Antes de confirmar o anular se relee la cita** y se exige un estado compatible (confirmar: agendada; anular: agendada o confirmada) | El estado puede cambiar entre la descarga de la mañana y la llamada. Evita también anular dos veces |
 | **Timeout de escritura propio (60 s)**, separado del de lectura (10 s) | Las escrituras tardaron hasta 25 s |
 | **Normalización**: RUT sin puntos con DV en mayúscula, teléfono en E.164, nombre separado en apellidos y nombres, centro como número | Datos con formatos distintos al manual |

@@ -30,6 +30,16 @@ PUEDE_ANULAR = frozenset({EstadoCita.AGENDADA, EstadoCita.CONFIRMADA})
 CLAVES_LISTA = {"estado", "total", "citas", "siguiente"}  # "siguiente": token de la próxima página
 CLAVES_DETALLE = {"estado", "cita"}
 
+MAX_RETRY_AFTER = 60  # segundos: nunca esperar más, aunque SIGAH pida más en Retry-After
+
+
+class _Saturado(Exception):
+    """HTTP 429: SIGAH rechazó la petición por exceso de tráfico, sin procesarla."""
+
+    def __init__(self, espera: float | None):
+        super().__init__("HTTP 429 demasiadas peticiones")
+        self.espera = espera  # segundos pedidos en Retry-After, o None
+
 
 class _Transitorio(Exception):
     """Falla de red o HTTP 5xx: no se sabe si SIGAH procesó la petición."""
@@ -126,6 +136,9 @@ class SigahClient:
             respuesta = self._enviar(peticion)
         except _Transitorio as e:
             raise self._incierto(id_cita, accion, e) from e
+        except _Saturado as e:  # a diferencia de un timeout, se sabe que NO se aplicó
+            raise ServicioNoDisponibleError(f"SIGAH rechazó '{accion}' de {id_cita} por exceso de tráfico "
+                                            f"(429): no se aplicó, reintentar más tarde") from e
         _validar(respuesta)
         return self.cita(id_cita)
 
@@ -139,23 +152,28 @@ class SigahClient:
 
     def _get(self, ruta: str, params: dict | None = None) -> dict:
         peticion = self._http.build_request("GET", ruta, params=params)
+        espera_pedida = None
         for intento in range(self._reintentos + 1):
             if intento:
-                time.sleep(self._espera * 2 ** (intento - 1))
+                time.sleep(espera_pedida if espera_pedida is not None else self._espera * 2 ** (intento - 1))
             try:
                 return _validar(self._enviar(peticion))
             except _Transitorio as e:
-                causa = e
+                causa, espera_pedida = e, None  # el Retry-After de un 429 anterior no aplica a esta falla
+            except _Saturado as e:
+                causa, espera_pedida = e, e.espera
         raise ServicioNoDisponibleError(f"SIGAH no responde ({causa})")
 
     def _enviar(self, peticion: httpx.Request) -> httpx.Response:
-        """Envía y audita. Lanza `_Transitorio` ante falla de red o HTTP 5xx."""
+        """Envía y audita. Lanza `_Transitorio` ante falla de red o HTTP 5xx, y `_Saturado` ante HTTP 429."""
         try:
             respuesta = self._http.send(peticion)
         except httpx.TransportError as e:
             self._auditar(peticion, "error", error=repr(e))
             raise _Transitorio(repr(e)) from e
         self._auditar(peticion, "respuesta", respuesta)
+        if respuesta.status_code == 429:
+            raise _Saturado(_retry_after(respuesta))
         if respuesta.status_code >= 500:
             raise _Transitorio(f"HTTP {respuesta.status_code}")
         return respuesta
@@ -197,6 +215,12 @@ def _validar(respuesta: httpx.Response) -> dict:
     if respuesta.status_code >= 400 or datos.get("estado") != "OK":
         raise RespuestaInesperadaError(f"HTTP {respuesta.status_code}, estado {datos.get('estado')!r}")
     return datos
+
+
+def _retry_after(respuesta: httpx.Response) -> float | None:
+    """Segundos de la cabecera Retry-After, con tope. None si no viene o no está en segundos (puede ser una fecha)."""
+    valor = respuesta.headers.get("Retry-After", "").strip()
+    return min(float(valor), MAX_RETRY_AFTER) if valor.isdecimal() else None
 
 
 def _extraer_citas(datos: dict) -> list[dict]:
