@@ -125,7 +125,7 @@ Días con datos: **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Ni
 | Dígito verificador del RUT válido (muestra 26–31-10) | **6/60**. En la interfaz todos los RUT terminan en `-5`: es un problema de origen |
 | Pacientes distintos (26–31-10) | **20**, cada uno con 3 citas en la semana y nunca dos el mismo día |
 | **Vacunación del 07-10** | Las 110 citas del día local son de `VACU`: **20 pacientes con 5 o 6 citas cada uno**, siempre con el mismo profesional, repartidas en 7 a 10 horas. ¿Bloques reservados o datos de prueba? (§6) |
-| Estados fuera de catálogo | `COD_EST` 5 (×2) y 9 (×1) el 08-10 |
+| Estados fuera de catálogo | `COD_EST` 5 (×2) y 9 (×1), solo el 08-10. Ese día parece armado para mostrar el catálogo: 10 citas de Traumatología con ids consecutivos, y las cinco primeras (09:00 a 11:00) llevan los códigos **en orden: 1, 2, 3, 5, 9**. Indicio de que el catálogo completo sería {1, 2, 3, 5, 9}; **el significado de 5 y 9 sigue sin conocerse** y el cliente no lo supone. Son citas ya pasadas junto a otras que siguen en 1 o 2: SIGAH no cambia solo el estado de una cita pasada |
 | Médico con dos citas a la misma hora | 0 |
 | Teléfono con formato de móvil chileno | 100 % |
 | `COD_PRO` ↔ `NOM_PRO` consistentes | ✅ |
@@ -232,7 +232,7 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 
 | # | Pregunta | Estado |
 |---|---|---|
-| 1 | ¿Qué significan los estados `COD_EST` 5 y 9? ¿Hay otros? | Pendiente. 1, 2 y 3 resueltos (§1.4) |
+| 1 | ¿Qué significan los estados `COD_EST` 5 y 9? ¿Existen otros además de 1, 2, 3, 5 y 9? | Pendiente. 1, 2 y 3 resueltos (§1.4); el 08-10 sugiere el catálogo {1, 2, 3, 5, 9} (§2) |
 | 2 | ¿Qué significan `ERR-07` y `ERR-09`? ¿Hay una lista completa de códigos? | Pendiente. Comportamiento observado en §1.4 |
 | 3 | ¿Anular envía una notificación al paciente? ¿También si la cita ya estaba cancelada? | Pendiente |
 | 4 | ¿Por qué las escrituras tardan hasta 25 s? ¿Se procesan de forma asíncrona? | Pendiente |
