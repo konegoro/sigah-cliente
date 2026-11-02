@@ -57,7 +57,7 @@ La interfaz de SIGAH indica explícitamente "Horas en hora local del establecimi
 - Desfase: **+4 h**. En diciembre Chile continental está en **UTC-3** (horario de verano), así que UTC real daría +3 h.
 - Hipótesis: el servidor convierte a "UTC" con un **desfase fijo de -4 h** (hora estándar de Chile) e ignora el horario de verano. Sería consistente con los "ajustes en el manejo de fechas" de la v1.4 y con la migración a la nube (la API corre en Google Cloud Run, cuyos servidores usan UTC).
 - Coincide con octubre: la API entrega 12:00–22:00 más 00:30, que en local es **08:00–18:00 más una urgencia a las 20:30 del día anterior**. Por eso SIGAH tiene 111 citas en su "día 07-10" y el día local 07-10 tiene 110: una cae el 06-10 a las 20:30.
-- **No se puede verificar el comportamiento en invierno (abril–septiembre)**: no hay datos en ese período.
+- **El invierno no se puede verificar con datos.** En 2026 Chile estuvo en UTC-4 del 05-04 al 05-09. Se recorrieron los 183 días del 01-04 al 30-09 (una lectura cada 2 s): solo el 07-09 tiene citas, y ya es horario de verano (el cambio fue el 06-09). SIGAH no tiene ninguna cita de invierno.
 - *Corrección:* en un borrador inicial supusimos UTC-3 a partir del horario. La captura de la interfaz lo desmiente.
 
 ### 1.2 Paginación
@@ -117,7 +117,7 @@ Solo sobre las citas reservadas por Informática (§3.2). Antes de cada escritur
 
 ## 2. Calidad de datos observada
 
-Días con datos: **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Ningún otro día de octubre, ni los consultados de noviembre y diciembre, tiene citas.
+Días con citas: **07-09-2026**, **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Se recorrieron completos abril a octubre de 2026, más fechas sueltas de noviembre y diciembre; ningún otro de esos días tiene citas. El resto del calendario no se consultó.
 
 | Verificación | Resultado |
 |---|---|
@@ -155,6 +155,7 @@ Días con datos: **05 al 08-10-2026**, **26 al 31-10-2026** y **15-12-2026**. Ni
 | **HTTP 429 en lecturas: se reintenta esperando lo que pida `Retry-After`** (en segundos, con tope de 60 s; si no viene, la espera normal) | No se observó, pero SIGAH corre en Google Cloud Run, que responde 429 cuando se queda sin instancias disponibles |
 | **Las escrituras nunca se reintentan.** Ante timeout o 5xx se relee la cita y se informa "resultado incierto". Ante 429 se informa que **no se aplicó** | Una confirmación se aplicó después de su timeout (A1), y no se sabe si anular notifica al paciente cada vez. Un 429, en cambio, indica que la petición se rechazó sin procesarse |
 | **Antes de confirmar o anular se relee la cita** y se exige un estado compatible (confirmar: agendada; anular: agendada o confirmada) | El estado puede cambiar entre la descarga de la mañana y la llamada. Evita también anular dos veces |
+| **Después de un `OK` se relee la cita y se exige el estado final** (confirmada o cancelada). Si aún no lo refleja, o no se puede releer, el resultado es incierto | SIGAH puede aplicar una escritura con retraso (A1): un `OK` sin el cambio visible no es un éxito completo |
 | **Timeout de escritura propio (60 s)**, separado del de lectura (10 s) | Las escrituras tardaron hasta 25 s |
 | **Normalización**: RUT sin puntos con DV en mayúscula, teléfono en E.164, nombre separado en apellidos y nombres, centro como número | Datos con formatos distintos al manual |
 | **Centro 3 (Hospital) por defecto**, configurable | Confirmado por Informática y único con datos. Un centro equivocado responde "OK, 0 citas" sin error |
@@ -215,7 +216,7 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 
 ## 5. Riesgos antes de producción
 
-1. **Desfase horario en invierno.** El +4 h está verificado en octubre y diciembre (horario de verano). Si en invierno SIGAH cambia de comportamiento, se le informaría al paciente una hora equivocada. La alerta `horario_fuera_de_rango` lo delataría (citas de madrugada).
+1. **Desfase horario en invierno.** El +4 h está verificado en octubre y diciembre (horario de verano), y SIGAH no tiene citas de invierno con las que verificarlo (§1.1). Si en invierno cambia de comportamiento, se le informaría al paciente una hora equivocada. La alerta `horario_fuera_de_rango` lo delataría (citas de madrugada).
 2. **Estados incompletos.** Conocemos 1, 2 y 3; existen al menos 5 y 9. Una cita en estado desconocido no se debe llamar ni modificar sin revisión.
 3. **Paginación verificada en un solo día** (07-10, 3 páginas). Como `total` no detecta páginas faltantes, la completitud depende de que SIGAH entregue `siguiente` de forma consistente.
 4. **Escrituras lentas o diferidas.** Si `confirmar`/`anular` supera el timeout, el resultado es incierto y una relectura inmediata puede no reflejarlo. La plataforma debe revisar esos casos más tarde (la auditoría los registra), nunca reintentarlos a ciegas.
@@ -236,11 +237,11 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 | 2 | ¿Qué significan `ERR-07` y `ERR-09`? ¿Hay una lista completa de códigos? | Pendiente. Comportamiento observado en §1.4 |
 | 3 | ¿Anular envía una notificación al paciente? ¿También si la cita ya estaba cancelada? | Pendiente |
 | 4 | ¿Por qué las escrituras tardan hasta 25 s? ¿Se procesan de forma asíncrona? | Pendiente |
-| 5 | ¿El desfase de +4 h se mantiene en invierno? | Pendiente (no hay datos de abril–septiembre) |
+| 5 | ¿El desfase de +4 h se mantiene en invierno? | Pendiente: SIGAH no tiene citas del invierno de 2026 (§1.1) |
 | 6 | ¿Qué otros centros existen y cuáles nos corresponden? | Parcial: centro 3 = Hospital, único con datos |
 | 7 | Catálogo completo de especialidades (`URGE` y `VACU` no están en el Anexo A) | Pendiente |
 | 8 | 07-10: ¿20 pacientes con 5 o 6 citas de vacunación cada uno es real? | Pendiente |
-| 9 | ¿Los datos son reales? 90 % de RUT con DV inválido, pacientes repetidos, citas en solo 11 días | Pendiente |
+| 9 | ¿Los datos son reales? 90 % de RUT con DV inválido, pacientes repetidos, citas en solo 12 días | Pendiente |
 | 10 | `OBS` sale `null` en la API aunque en la interfaz tiene contenido. ¿Es otro campo? | Pendiente |
 | 11 | ¿Quién restablece las citas de prueba y cada cuánto? | Pendiente (observado en §1.4) |
 | — | Resueltas: paginación (§1.2), ids de las citas de prueba (§3.2), centro del Hospital (§1.3), respuestas y transiciones de escritura (§1.4), vigencia de la key | ✅ |
@@ -249,9 +250,9 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 
 ## 7. Cómo se verificó
 
-- **Lecturas:** unas 250 en total. Las primeras, exploratorias, con un script de sondeo que enmascaraba los datos personales; las 81 posteriores, con el propio cliente y registradas en su auditoría.
+- **Lecturas:** unas 450 en total. Las primeras, exploratorias, con un script de sondeo que enmascaraba los datos personales; las posteriores, con el propio cliente y registradas en su auditoría. El recorrido de abril a septiembre se espació en 6 minutos para no cargar producción.
 - **Escrituras:** 7, solo sobre 2 de las 3 citas reservadas para pruebas (§1.4), todas auditadas.
-- **Fechas:** todo octubre 2026, varias de noviembre y diciembre (incluido el 15-12). Centros 0, -1 y del 1 al 100.
+- **Fechas:** abril a octubre de 2026 completos, y fechas sueltas de noviembre y diciembre (incluido el 15-12). Centros 0, -1 y del 1 al 100.
 - **Rutas:** `/citas` (variantes de `fecha`, `centro_id`, `estado` y unos 20 parámetros de paginación), `/citas/{id}` (válido, inexistente y numérico), `/citas/{id}/confirmar` y `/anular` (§1.4), y rutas de documentación (`/docs`, `/openapi.json`), que no existen.
 - **Contraste** con la captura de la interfaz de SIGAH 4.2 (agenda del 15-12-2026) enviada por Informática.
 - **Tests automáticos:** 57, contra un SIGAH simulado con los comportamientos observados y datos inventados.

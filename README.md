@@ -19,7 +19,7 @@ cp .env.example .env               # y escribir la API key en SIGAH_API_KEY
 sigah agenda 2026-12-15            # → 20 citas
 ```
 
-> **Días con datos** en el ambiente entregado: 05–08-10, 26–31-10 y 15-12-2026. El resto devuelve 0 citas.
+> **Días con citas** en el ambiente entregado: 07-09, 05–08-10, 26–31-10 y 15-12-2026. Se recorrieron completos abril a octubre de 2026; cualquier otro día consultado devolvió 0 citas.
 >
 > **Ubuntu/Debian:** si `python3 -m venv` falla por `ensurepip`, instalar antes `sudo apt install python3-venv`.
 >
@@ -84,7 +84,7 @@ La escritura (`confirmar`, `anular`) requiere `SigahClient(..., permitir_escritu
 | `RespuestaInesperadaError` | Formato que no se puede interpretar con seguridad (ej. paginación no soportada) |
 | `ServicioNoDisponibleError` | SIGAH no responde tras los reintentos |
 | `EscrituraNoPermitidaError` | Escritura deshabilitada o estado actual incompatible |
-| `ResultadoInciertoError` | Se envió una escritura y no se sabe si se aplicó: **revisar antes de reintentar** |
+| `ResultadoInciertoError` | Se envió una escritura y no se sabe si se aplicó (timeout, 5xx, o un `OK` que la cita aún no refleja): **revisar antes de reintentar** |
 
 Todos heredan de `SigahError`.
 
