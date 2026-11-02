@@ -68,7 +68,7 @@ def test_salida_guarda_el_error_informado(respx_mock, auditoria):
 
 def test_escritura_registra_una_sola_salida(respx_mock, auditoria):
     # Las relecturas internas (antes y después del POST) no son entregas a la plataforma.
-    respx_mock.get("/citas/AGD-1").mock(return_value=detalle())
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[detalle(), detalle({**REGISTRO, "COD_EST": 2})])
     respx_mock.post("/citas/AGD-1/confirmar").respond(200, text="OK")
     cliente(auditoria, permitir_escritura=True).confirmar("AGD-1")
 

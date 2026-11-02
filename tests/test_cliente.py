@@ -195,8 +195,25 @@ def test_post_no_se_reintenta_y_el_resultado_es_incierto(respx_mock):
     assert post.call_count == 1
 
 
+def test_ok_sin_el_cambio_visible_es_incierto(respx_mock):
+    # SIGAH puede aplicar con retraso (prueba A1): un OK con la cita aún agendada no es un éxito completo.
+    respx_mock.get("/citas/AGD-1").mock(return_value=detalle())  # antes y después: agendada
+    post = respx_mock.post("/citas/AGD-1/confirmar").respond(200, text="OK")
+    with pytest.raises(ResultadoInciertoError, match="aún figura agendada"):
+        cliente(permitir_escritura=True).confirmar("AGD-1")
+    assert post.call_count == 1  # tampoco se reintenta
+
+
+def test_ok_sin_poder_releer_es_incierto(respx_mock):
+    # SIGAH aceptó, pero la relectura falla: informar "no disponible" haría creer que no se aplicó.
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[detalle(), HTML_502, HTML_502, HTML_502, HTML_502])
+    respx_mock.post("/citas/AGD-1/anular").respond(200, text="OK")
+    with pytest.raises(ResultadoInciertoError, match="no se pudo releer"):
+        cliente(permitir_escritura=True).anular("AGD-1")
+
+
 def test_confirmar_audita_intento_y_respuesta_con_datos_enmascarados(respx_mock):
-    respx_mock.get("/citas/AGD-1").mock(return_value=detalle())
+    respx_mock.get("/citas/AGD-1").mock(side_effect=[detalle(), detalle({**REGISTRO, "COD_EST": 2})])
     respx_mock.post("/citas/AGD-1/confirmar").respond(200, json={"estado": "OK"})
     with Auditoria(":memory:") as auditoria:
         cliente(permitir_escritura=True, auditoria=auditoria).confirmar("AGD-1")

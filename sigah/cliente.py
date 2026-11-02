@@ -88,11 +88,12 @@ class SigahClient:
     def confirmar(self, id_cita: str) -> Cita:
         """Confirma una cita (ver PUEDE_CONFIRMAR). Devuelve la cita releída desde SIGAH."""
         return self._entregar("confirmar", {"id": id_cita},
-                              lambda: self._escribir(id_cita, "confirmar", PUEDE_CONFIRMAR))
+                              lambda: self._escribir(id_cita, "confirmar", PUEDE_CONFIRMAR, EstadoCita.CONFIRMADA))
 
     def anular(self, id_cita: str) -> Cita:
         """Anula una cita (ver PUEDE_ANULAR). Devuelve la cita releída desde SIGAH."""
-        return self._entregar("anular", {"id": id_cita}, lambda: self._escribir(id_cita, "anular", PUEDE_ANULAR))
+        return self._entregar("anular", {"id": id_cita},
+                              lambda: self._escribir(id_cita, "anular", PUEDE_ANULAR, EstadoCita.CANCELADA))
 
     def _entregar(self, operacion: str, parametros: dict, obtener):
         """Ejecuta una operación pública y audita lo que entrega (o el error que informa) y los avisos de calidad."""
@@ -141,7 +142,8 @@ class SigahClient:
             raise RespuestaInesperadaError(f"SIGAH devolvió {id_cita} sin id o fecha válida")
         return cita
 
-    def _escribir(self, id_cita: str, accion: str, estados_validos: frozenset[EstadoCita]) -> Cita:
+    def _escribir(self, id_cita: str, accion: str, estados_validos: frozenset[EstadoCita],
+                  estado_final: EstadoCita) -> Cita:
         if not self.permitir_escritura:
             raise EscrituraNoPermitidaError("La escritura está deshabilitada")
         # Se relee justo antes de escribir: el estado pudo cambiar desde que se obtuvo la agenda.
@@ -160,7 +162,16 @@ class SigahClient:
             raise ServicioNoDisponibleError(f"SIGAH rechazó '{accion}' de {id_cita} por exceso de tráfico "
                                             f"(429): no se aplicó, reintentar más tarde") from e
         _validar(respuesta)
-        return self._leer_cita(id_cita)
+        # Un OK no basta: SIGAH puede aplicar la escritura con retraso. Se exige ver el estado final.
+        try:
+            despues = self._leer_cita(id_cita)
+        except SigahError as e:
+            raise ResultadoInciertoError(f"SIGAH aceptó '{accion}' de {id_cita}, pero no se pudo releer la cita "
+                                         f"({e}). Revisar más tarde.") from e
+        if despues.estado is not estado_final:
+            raise ResultadoInciertoError(f"SIGAH aceptó '{accion}' de {id_cita}, pero la cita aún figura "
+                                         f"{despues.estado.value}. Revisar más tarde.")
+        return despues
 
     def _incierto(self, id_cita: str, accion: str, causa: Exception) -> ResultadoInciertoError:
         try:
