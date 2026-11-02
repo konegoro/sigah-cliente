@@ -6,6 +6,7 @@ queda en `None` y se registra en el logger `sigah.calidad` (sin datos personales
 import logging
 import re
 from datetime import date, datetime, time, timedelta
+from enum import Enum
 
 from .modelos import ZONA, Cita, EstadoCita, Paciente
 
@@ -13,6 +14,23 @@ from .modelos import ZONA, Cita, EstadoCita, Paciente
 ESTADOS = {1: EstadoCita.AGENDADA, 2: EstadoCita.CONFIRMADA, 3: EstadoCita.CANCELADA}
 
 log = logging.getLogger("sigah.calidad")
+
+
+class ProblemaCalidad(Enum):
+    """Problemas de un registro SIGAH. El valor es un código estable: se guarda y se consulta por él, no por el texto."""
+    CITA_DESCARTADA = "cita_descartada"  # sin id o sin FEC_HORA válida
+    ESTADO_NO_CATALOGADO = "estado_no_catalogado"
+    CENTRO_INVALIDO = "centro_invalido"
+    RUT_INVALIDO = "rut_invalido"
+    RUT_DV_INVALIDO = "rut_dv_invalido"
+    TELEFONO_INVALIDO = "telefono_invalido"
+    NOMBRE_AUSENTE = "nombre_ausente"
+    NOMBRE_SIN_SEPARADOR = "nombre_sin_separador"
+
+
+def _avisar(id_: str | None, problema: ProblemaCalidad, mensaje: str, nivel: int = logging.WARNING) -> None:
+    """Registra un problema: texto legible en el log, y aparte el código y el id, para guardarlos y consultarlos."""
+    log.log(nivel, "%s: %s", id_ or "?", mensaje, extra={"problema": problema, "cita_id": id_})
 
 
 def dias_sigah(fecha: date, desfase_horas: int) -> list[date]:
@@ -40,7 +58,7 @@ def a_cita(reg: dict, desfase_horas: int) -> Cita | None:
     id_ = _texto(reg.get("ID_CITA"))
     inicio = _inicio(reg.get("FEC_HORA"), desfase_horas)
     if id_ is None or inicio is None:
-        log.error("Cita descartada (id=%s): falta id o FEC_HORA válida", id_ or "?")
+        _avisar(id_, ProblemaCalidad.CITA_DESCARTADA, "cita descartada: falta id o FEC_HORA válida", logging.ERROR)
         return None
 
     apellidos, nombres = _nombre(id_, reg.get("NOM_PAC"))
@@ -77,7 +95,7 @@ def _inicio(valor, desfase_horas: int) -> datetime | None:
 def _estado(id_: str, valor) -> EstadoCita:
     estado = ESTADOS.get(valor) if isinstance(valor, int) else None
     if estado is None:
-        log.warning("%s: COD_EST desconocido (%r)", id_, valor)
+        _avisar(id_, ProblemaCalidad.ESTADO_NO_CATALOGADO, f"COD_EST desconocido ({valor!r})")
         return EstadoCita.DESCONOCIDO
     return estado
 
@@ -88,7 +106,7 @@ def _centro(id_: str, valor) -> int | None:
         return valor
     if isinstance(valor, str) and valor.strip().isdecimal():
         return int(valor)
-    log.warning("%s: CENTRO ausente o no interpretable", id_)
+    _avisar(id_, ProblemaCalidad.CENTRO_INVALIDO, "CENTRO ausente o no interpretable")
     return None
 
 
@@ -96,11 +114,11 @@ def _rut(id_: str, valor) -> str | None:
     texto = (_texto(valor) or "").replace(".", "").replace(" ", "").upper()
     m = re.fullmatch(r"(\d{7,8})-?([\dK])", texto)
     if not m:
-        log.warning("%s: RUT ausente o con formato inválido", id_)
+        _avisar(id_, ProblemaCalidad.RUT_INVALIDO, "RUT ausente o con formato inválido")
         return None
     cuerpo, dv = m.groups()
     if dv != _dv(cuerpo):
-        log.warning("%s: RUT con dígito verificador inválido", id_)
+        _avisar(id_, ProblemaCalidad.RUT_DV_INVALIDO, "RUT con dígito verificador inválido")
     return f"{cuerpo}-{dv}"
 
 
@@ -116,7 +134,7 @@ def _telefono(id_: str, valor) -> str | None:
     if len(digitos) == 11 and digitos.startswith("56"):
         digitos = digitos[2:]
     if len(digitos) != 9:
-        log.warning("%s: teléfono ausente o no interpretable", id_)
+        _avisar(id_, ProblemaCalidad.TELEFONO_INVALIDO, "teléfono ausente o no interpretable")
         return None
     return f"+56{digitos}"
 
@@ -125,10 +143,10 @@ def _nombre(id_: str, valor) -> tuple[str | None, str | None]:
     """SIGAH entrega "APELLIDOS, NOMBRES"."""
     texto = _texto(valor)
     if texto is None:
-        log.warning("%s: nombre de paciente ausente", id_)
+        _avisar(id_, ProblemaCalidad.NOMBRE_AUSENTE, "nombre de paciente ausente")
         return None, None
     apellidos, coma, nombres = texto.partition(",")
     if not coma:
-        log.warning("%s: nombre sin separador de apellidos", id_)
+        _avisar(id_, ProblemaCalidad.NOMBRE_SIN_SEPARADOR, "nombre sin separador de apellidos")
         return None, texto
     return _texto(apellidos), _texto(nombres)

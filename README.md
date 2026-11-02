@@ -94,7 +94,10 @@ Todos heredan de `SigahError`.
 - **Reintentos:** las lecturas se reintentan ante fallas de red o HTTP 5xx, con espera exponencial, y ante HTTP 429 esperando lo que indique `Retry-After`. Las escrituras **nunca** se reintentan.
 - **Antes de escribir** se relee la cita y se valida su estado.
 - **Datos sucios:** solo `id` e `inicio` son imprescindibles; cualquier otro dato inválido queda en `None` y se registra en el logger `sigah.calidad`, sin datos personales.
-- **Auditoría:** cada llamada HTTP queda en SQLite con su cuerpo enmascarado, el SHA-256 del original y el `x-cloud-trace-context` de SIGAH.
+- **Auditoría (SQLite, datos personales enmascarados):**
+  - `auditoria`: cada llamada a SIGAH, con su cuerpo, el SHA-256 del original y el `x-cloud-trace-context`.
+  - `salidas`: lo que el cliente entregó a la plataforma en cada operación, o el error que informó.
+  - `eventos`: problemas de calidad (`ProblemaCalidad`) y alertas de reglas (`TipoAlerta`), una fila por cita, con código estable. Ej.: `SELECT cita_id FROM eventos WHERE codigo = 'rut_dv_invalido'`.
 - **Reglas de negocio:** `revisar(citas)` devuelve alertas (tope horario, sin contacto, estado desconocido, etc.) sin modificar las citas. Detalle en [HALLAZGOS §3.1](HALLAZGOS.md#31-reglas-de-negocio-alertas).
 
 ## Tests

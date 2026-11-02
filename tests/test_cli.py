@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from sigah import Auditoria
 from sigah.cli import _booleano, main
 from sigah.cliente import CENTRO_ID, URL_BASE
 
@@ -20,6 +21,17 @@ def test_funciona_solo_con_la_api_key(respx_mock):
     ruta = respx_mock.get("/citas").respond(200, json={"estado": "OK", "total": 0, "citas": []})
     assert main(["agenda", "2026-12-15"]) == 0
     assert ruta.calls[0].request.url.params["centro_id"] == str(CENTRO_ID)
+
+
+@pytest.mark.respx(base_url=URL_BASE)
+def test_agenda_guarda_las_alertas_en_la_auditoria(respx_mock):
+    sin_telefono = {"ID_CITA": "AGD-1", "FEC_HORA": "2026-12-15 12:00:00", "COD_EST": 1, "RUT_PAC": "12.345.678-5"}
+    respx_mock.get("/citas").respond(200, json={"estado": "OK", "total": 1, "citas": [sin_telefono]})
+    assert main(["agenda", "2026-12-15"]) == 0
+
+    with Auditoria() as auditoria:  # la base por defecto, en la carpeta temporal del test
+        reglas = {e["codigo"] for e in auditoria.registros("eventos") if e["origen"] == "regla"}
+    assert "sin_contacto" in reglas
 
 
 def test_sin_api_key(monkeypatch, capsys):

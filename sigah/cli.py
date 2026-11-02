@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
               SigahClient(api_key, permitir_escritura=args.comando in ESCRITURAS,
                           auditoria=auditoria, **opciones) as cliente):
             if args.comando == "agenda":
-                _agenda(cliente, args)
+                _agenda(cliente, auditoria, args)
             else:
                 operacion = {"cita": cliente.cita, "confirmar": cliente.confirmar, "anular": cliente.anular}
                 print(_linea(operacion[args.comando](args.id), args.completo))
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _agenda(cliente: SigahClient, args: argparse.Namespace) -> None:
+def _agenda(cliente: SigahClient, auditoria: Auditoria, args: argparse.Namespace) -> None:
     citas = cliente.agenda(args.fecha, args.dias)
     for c in citas:
         print(_linea(c, args.completo))
@@ -65,7 +65,9 @@ def _agenda(cliente: SigahClient, args: argparse.Namespace) -> None:
     reglas = _desde_env(SIGAH_HORA_MIN=("hora_min", time.fromisoformat),
                         SIGAH_HORA_MAX=("hora_max", time.fromisoformat),
                         SIGAH_REVISAR_PROFESIONAL=("revisar_profesional", _booleano))
-    for a in revisar(citas, **reglas):
+    alertas = revisar(citas, **reglas)
+    auditoria.registrar_alertas(alertas)
+    for a in alertas:
         print(f"ALERTA {a.tipo.value}: {', '.join(a.cita_ids)} ({a.detalle})")
 
 

@@ -79,6 +79,35 @@ class SigahClient:
         """Citas de `fecha` y los `dias - 1` días siguientes, en hora local de Chile, ordenadas por inicio."""
         if not 1 <= dias <= MAX_DIAS:
             raise ValueError(f"dias debe estar entre 1 y {MAX_DIAS}, no {dias}")
+        return self._entregar("agenda", {"fecha": fecha, "dias": dias}, lambda: self._agenda(fecha, dias))
+
+    def cita(self, id_cita: str) -> Cita:
+        """Una cita por su identificador (ej. "AGD-0000099013")."""
+        return self._entregar("cita", {"id": id_cita}, lambda: self._leer_cita(id_cita))
+
+    def confirmar(self, id_cita: str) -> Cita:
+        """Confirma una cita (ver PUEDE_CONFIRMAR). Devuelve la cita releída desde SIGAH."""
+        return self._entregar("confirmar", {"id": id_cita},
+                              lambda: self._escribir(id_cita, "confirmar", PUEDE_CONFIRMAR))
+
+    def anular(self, id_cita: str) -> Cita:
+        """Anula una cita (ver PUEDE_ANULAR). Devuelve la cita releída desde SIGAH."""
+        return self._entregar("anular", {"id": id_cita}, lambda: self._escribir(id_cita, "anular", PUEDE_ANULAR))
+
+    def _entregar(self, operacion: str, parametros: dict, obtener):
+        """Ejecuta una operación pública y audita lo que entrega (o el error que informa) y los avisos de calidad."""
+        if self._auditoria is None:
+            return obtener()
+        with self._auditoria.capturar_calidad():
+            try:
+                resultado = obtener()
+            except SigahError as e:
+                self._auditoria.registrar_salida(operacion, parametros, error=f"{type(e).__name__}: {e}")
+                raise
+        self._auditoria.registrar_salida(operacion, parametros, resultado)
+        return resultado
+
+    def _agenda(self, fecha: date, dias: int) -> list[Cita]:
         fechas = {fecha + timedelta(days=i) for i in range(dias)}
         # Días locales consecutivos comparten días de SIGAH: cada uno se pide una sola vez.
         dias_a_pedir = sorted({d for f in fechas for d in dias_sigah(f, self.desfase_horas)})
@@ -102,8 +131,7 @@ class SigahClient:
             tokens.add(token)
             params = {**params, "desde": token}
 
-    def cita(self, id_cita: str) -> Cita:
-        """Una cita por su identificador (ej. "AGD-0000099013")."""
+    def _leer_cita(self, id_cita: str) -> Cita:
         # El id va dentro de la URL: sin esto, "AGD-1/anular" haría un GET a otra ruta.
         if not re.fullmatch(r"[A-Za-z0-9-]+", id_cita):
             raise SolicitudInvalidaError(f"Id de cita inválido: {id_cita!r}")
@@ -113,19 +141,11 @@ class SigahClient:
             raise RespuestaInesperadaError(f"SIGAH devolvió {id_cita} sin id o fecha válida")
         return cita
 
-    def confirmar(self, id_cita: str) -> Cita:
-        """Confirma una cita (ver PUEDE_CONFIRMAR). Devuelve la cita releída desde SIGAH."""
-        return self._escribir(id_cita, "confirmar", PUEDE_CONFIRMAR)
-
-    def anular(self, id_cita: str) -> Cita:
-        """Anula una cita (ver PUEDE_ANULAR). Devuelve la cita releída desde SIGAH."""
-        return self._escribir(id_cita, "anular", PUEDE_ANULAR)
-
     def _escribir(self, id_cita: str, accion: str, estados_validos: frozenset[EstadoCita]) -> Cita:
         if not self.permitir_escritura:
             raise EscrituraNoPermitidaError("La escritura está deshabilitada")
         # Se relee justo antes de escribir: el estado pudo cambiar desde que se obtuvo la agenda.
-        actual = self.cita(id_cita)
+        actual = self._leer_cita(id_cita)
         if actual.estado not in estados_validos:
             raise EscrituraNoPermitidaError(f"{id_cita} está {actual.estado.value}; no se puede {accion}")
 
@@ -140,11 +160,11 @@ class SigahClient:
             raise ServicioNoDisponibleError(f"SIGAH rechazó '{accion}' de {id_cita} por exceso de tráfico "
                                             f"(429): no se aplicó, reintentar más tarde") from e
         _validar(respuesta)
-        return self.cita(id_cita)
+        return self._leer_cita(id_cita)
 
     def _incierto(self, id_cita: str, accion: str, causa: Exception) -> ResultadoInciertoError:
         try:
-            estado = self.cita(id_cita).estado.value
+            estado = self._leer_cita(id_cita).estado.value
         except SigahError:
             estado = "no disponible"
         return ResultadoInciertoError(f"No se sabe si se aplicó '{accion}' a {id_cita} ({causa}); estado observado: "
