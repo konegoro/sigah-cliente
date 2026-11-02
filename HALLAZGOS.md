@@ -27,9 +27,9 @@
 | 4 | Códigos de error | `ERR-01`, `ERR-02` | Además **`ERR-03 "token de continuacion invalido"`**, **`ERR-04 "no existe"`**, y en escrituras **`ERR-07`** (confirmar una confirmada) y **`ERR-09`** (confirmar una cancelada) | Hay códigos no documentados |
 | 5 | Errores de infraestructura | — | **502 Bad Gateway intermitentes**, en HTML de nginx (no JSON). Al reintentar, la misma petición responde bien | 🟠 Hacen falta reintentos en las lecturas |
 | 6 | Ruta inexistente | — | 404 `{"detail":"Not Found"}`, un tercer formato de error | — |
-| 7 | `centro_id` | Opcional (centro por defecto según la key) | **Obligatorio**: sin él, `ERR-02 "parametros insuficientes"`. El **centro 3 es el Hospital** (Informática) y el único con datos (se probaron 0, -1 y del 1 al 100). **Un centro inexistente responde `OK` con 0 citas.** No hay endpoint de catálogo (`/centros` → 404) | 🟠 Un `centro_id` equivocado da una agenda vacía silenciosa |
+| 7 | `centro_id` | Opcional (centro por defecto según la key) | **Obligatorio**: sin él, `ERR-02 "parametros insuficientes"`. El **centro 3 es el Hospital** (Informática) y el único con datos en lo probado: una muestra de otros centros (1, 2, 4 y 5 el 28 y 29-10; 0, -1, del 1 al 10, 11, 12, 15, 20, 30, 33, 99 y 100 el 15-12) respondió `OK` con 0 citas. **No se puede distinguir un centro inexistente de uno vacío**: ambos responden igual. No hay endpoint de catálogo (`/centros` → 404) | 🟠 Un `centro_id` equivocado da una agenda vacía silenciosa |
 | 8 | Validación de parámetros | — | `centro_id=abc` → **HTTP 422** con el formato de validación de FastAPI (`{"detail":[...]}`), un cuarto formato de error. `centro_id=3.0` se acepta como 3 | — |
-| 9 | `fecha` | `YYYY-MM-DD HH:MM:SS` | Sin la parte de hora (`2026-10-28`) devuelve **`OK` con 0 citas, sin error**. La hora se ignora (`00:00:00` y `12:00:00` dan lo mismo) | 🔴 Agenda vacía falsa |
+| 9 | `fecha` | `YYYY-MM-DD HH:MM:SS` | **SIGAH no valida la fecha.** Sin la parte de hora (`2026-10-28`), con una fecha imposible (`2026-02-30`), una hora 25, texto (`hola`) o en formato ISO (`2026-10-07T00:00:00`, un día con 111 citas), responde **`OK` con 0 citas, sin error**. La hora se ignora (`00:00:00` y `12:00:00` dan lo mismo) | 🔴 Agenda vacía falsa, incluso con un formato estándar |
 | 10 | **Zona horaria** | Hora local, sin zona | **`FEC_HORA` = hora local + 4 h** (§1.1). No es hora local, ni UTC real (en diciembre Chile está en UTC-3) | 🔴 Hora equivocada al paciente y citas en el día equivocado |
 | 11 | Forma de la respuesta | Lista JSON | `{"estado":"OK","total":N,"citas":[...],"siguiente"?}`. Detalle: `{"estado":"OK","cita":{...}}` | — |
 | 12 | Nombres de campos | `id, rut, nombre, fechaHora, estado, especialidad, profesional, telefono, email` | `ID_CITA, RUT_PAC, NOM_PAC, FEC_HORA, COD_EST, COD_PRO, NOM_PRO, MEDICO, CENTRO, TEL_PAC, OBS` | Todos distintos |
@@ -146,7 +146,7 @@ Días con citas: **07-09-2026**, **05 al 08-10-2026**, **26 al 31-10-2026** y **
 | **Respuestas de escritura en texto plano**: `OK` es éxito | Así responden `confirmar` y `anular` (§1.4) |
 | **Paginación: se sigue `siguiente` → `desde` hasta que no venga.** Si un token se repite o se superan 100 páginas → error | Agenda completa; el tope evita un bucle infinito si SIGAH falla |
 | **Cualquier otra clave desconocida en la respuesta → error** | Un cambio de formato no documentado podría significar datos parciales. Así se detectó la paginación |
-| **La fecha siempre se envía con hora** (`YYYY-MM-DD 00:00:00`) | Sin hora, SIGAH responde "OK, 0 citas" |
+| **La fecha siempre se envía como `YYYY-MM-DD 00:00:00`**, armada desde un `date` de Python | SIGAH no valida la fecha: sin hora, inválida o en formato ISO responde "OK, 0 citas" |
 | **`FEC_HORA` se interpreta como hora local + 4 h** (configurable) y se expone con zona `America/Santiago` | Evidencia en §1.1. Configurable porque no conocemos el comportamiento en invierno |
 | **Agenda por días locales**: se piden los días SIGAH necesarios (cada uno una sola vez, aunque lo compartan dos días locales) y se filtra por fecha local. Admite varios días (`--dias`, máximo 31, para que un error de tipeo no sature producción) | Las citas locales desde las 20:00 caen en el día SIGAH siguiente. El flujo pide "la agenda de los próximos días" |
 | **`COD_EST`: `1 → AGENDADA`, `2 → CONFIRMADA`, `3 → CANCELADA`. Cualquier otro valor → `DESCONOCIDO`**, nunca se adivina | 1 contrastado con la interfaz; 2 y 3 observados en las pruebas de escritura |
@@ -238,7 +238,7 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 | 3 | ¿Anular envía una notificación al paciente? ¿También si la cita ya estaba cancelada? | Pendiente |
 | 4 | ¿Por qué las escrituras tardan hasta 25 s? ¿Se procesan de forma asíncrona? | Pendiente |
 | 5 | ¿El desfase de +4 h se mantiene en invierno? | Pendiente: SIGAH no tiene citas del invierno de 2026 (§1.1) |
-| 6 | ¿Qué otros centros existen y cuáles nos corresponden? | Parcial: centro 3 = Hospital, único con datos |
+| 6 | ¿Qué otros centros existen y cuáles nos corresponden? | Parcial: centro 3 = Hospital, único con datos en la muestra probada (§1, fila 7) |
 | 7 | Catálogo completo de especialidades (`URGE` y `VACU` no están en el Anexo A) | Pendiente |
 | 8 | 07-10: ¿20 pacientes con 5 o 6 citas de vacunación cada uno es real? | Pendiente |
 | 9 | ¿Los datos son reales? 90 % de RUT con DV inválido, pacientes repetidos, citas en solo 12 días | Pendiente |
@@ -252,7 +252,8 @@ El desfase horario **no se preguntó**: la captura de la interfaz lo demuestra (
 
 - **Lecturas:** unas 450 en total. Las primeras, exploratorias, con un script de sondeo que enmascaraba los datos personales; las posteriores, con el propio cliente y registradas en su auditoría. El recorrido de abril a septiembre se espació en 6 minutos para no cargar producción.
 - **Escrituras:** 7, solo sobre 2 de las 3 citas reservadas para pruebas (§1.4), todas auditadas.
-- **Fechas:** abril a octubre de 2026 completos, y fechas sueltas de noviembre y diciembre (incluido el 15-12). Centros 0, -1 y del 1 al 100.
+- **Fechas:** abril a octubre de 2026 completos, y fechas sueltas de noviembre y diciembre (incluido el 15-12), siempre en el centro 3. Otros centros, solo como muestra (§1, fila 7).
+- **Formatos de fecha:** sin hora, fecha imposible, hora 25, texto y formato ISO con `T` (§1, fila 9).
 - **Rutas:** `/citas` (variantes de `fecha`, `centro_id`, `estado` y unos 20 parámetros de paginación), `/citas/{id}` (válido, inexistente y numérico), `/citas/{id}/confirmar` y `/anular` (§1.4), y rutas de documentación (`/docs`, `/openapi.json`), que no existen.
 - **Contraste** con la captura de la interfaz de SIGAH 4.2 (agenda del 15-12-2026) enviada por Informática.
 - **Tests automáticos:** 57, contra un SIGAH simulado con los comportamientos observados y datos inventados.
